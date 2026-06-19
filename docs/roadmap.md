@@ -65,30 +65,41 @@ yet, but the structure is in place.
 
 ---
 
-## Phase 2 — Database schema
+## Phase 2 — Database schema (migration ready; Supabase application pending)
 
 **Goal:** Create the core Supabase tables needed for the capture pipeline.
 
 **What gets built:**
 - `supabase/migrations/0001_capture_pipeline.sql`:
-  - `capture_events` table
-  - `inbox_items` table (includes `item_type`, `review_status`, optional
-    `processing_status`, `reviewed_at`, `confirmed_at`, and `rejected_at` for lightweight
-    review audit — no separate `audit_log` table is created)
+  - `capture_events` table — includes `processing_status` (`received` /
+    `classified` / `classification_failed` / `invalid_ai_output`) and a `metadata`
+    JSONB column
+  - `inbox_items` table — includes `item_type`, `review_status`, `reviewed_at`,
+    `structured_json`, and an auto-maintained `updated_at` (via trigger). Review-state
+    audit is `review_status` + `reviewed_at`; there are no separate `confirmed_at` /
+    `rejected_at` columns and no separate `audit_log` table
   - `agent_runs` table
+- A small set of query indexes (see below)
 - Migration applied to the Supabase project
 - Schema documented and confirmed against `docs/data-model.md`
+
+**Indexes added this phase:**
+- `inbox_items(review_status)`, `inbox_items(item_type)`, `inbox_items(created_at)`
+- `capture_events(created_at)`, `agent_runs(created_at)`
+
+These support the dashboard inbox (filter by status/type, order by recency) and
+chronological reads of the append-only tables.
 
 **What must NOT be built yet:**
 - Domain tables (tasks, money_events, etc.) — these come later per module
 - `audit_log` or `inbox_review_events` table — deferred future work
 - RLS policies — deferred to Phase 15
 - Vector / pgvector extension — deferred to Phase 15
-- Any indexes beyond primary keys
+- Indexes beyond the small query set listed above
 
 **Definition of done:**
 - All three tables exist in Supabase
-- Schema matches the conceptual model in `docs/data-model.md`
+- Schema matches the model in `docs/data-model.md`
 - A test row can be inserted into each table manually via Supabase dashboard
 
 ---
@@ -131,8 +142,8 @@ yet, but the structure is in place.
   - Calls the same capture logic as `POST /capture/text`
   - Returns 200 to Telegram immediately
 - Webhook registered with Telegram (requires a public URL — use ngrok locally)
-- `inbox_items` row created with `review_status = pending`, `item_type = unknown`, and
-  `processing_status = received`
+- `inbox_items` row created with `review_status = pending` and `item_type = unknown`;
+  the linked `capture_event` has `processing_status = received`
   (AI classification is still a stub in this phase)
 - `DEV_ADMIN_TOKEN` guard on all non-webhook routes (simple Bearer token check in a
   FastAPI middleware/dependency — development only, replaced by real auth in Phase 15)
@@ -179,14 +190,15 @@ yet, but the structure is in place.
 
 ## Phase 6 — AI classification
 
-**Goal:** Claude classifies each capture and populates `extracted_data` on the inbox item.
+**Goal:** Claude classifies each capture and populates `structured_json` on the inbox item.
 
 **What gets built:**
 - `services/api/lib/classifier.py` — sends raw text to Claude, returns an item type
   and extracted fields as structured JSON
 - Classification is called immediately when a capture is received (after storing the
   `capture_event` but before returning the Telegram confirmation)
-- `inbox_items` rows now have a real `item_type`, `extracted_data`, and processing status
+- `inbox_items` rows now have a real `item_type`, `structured_json`, and confidence;
+  processing status is updated on the linked `capture_event`
 - `agent_runs` rows are written for every AI call
 
 **What must NOT be built yet:**
@@ -196,14 +208,14 @@ yet, but the structure is in place.
 
 **Definition of done:**
 - "Spent $12 on lunch" → inbox item with `item_type = finance`,
-  `extracted_data = { amount: 12, currency: SGD, direction: expense, merchant: null, category: food }`
-- "Call mum this weekend" → `item_type = task`, `extracted_data = { title: "Call mum", urgency: this_week }`
+  `structured_json = { amount: 12, currency: SGD, direction: expense, merchant: null, category: food }`
+- "Call mum this weekend" → `item_type = task`, `structured_json = { title: "Call mum", urgency: this_week }`
 - `agent_runs` row created for each classification call
 - AI confidence and item type visible in the dashboard inbox
 - Classification failure or invalid structured output preserves the `capture_event` and
   creates an inbox_item with `item_type = unknown`,
-  `review_status = needs_manual_classification`, and the appropriate failure
-  `processing_status`; the item remains visible in the dashboard inbox
+  `review_status = needs_manual_classification`, while the linked capture_event receives
+  the appropriate failure `processing_status`; the item remains visible in the dashboard inbox
 
 ---
 
@@ -214,10 +226,10 @@ yet, but the structure is in place.
 **What gets built:**
 - Dashboard: Confirm and Reject buttons on each inbox item
 - `PATCH /inbox/:id/confirm` — validates `review_status = pending`, `item_type`, and
-  `extracted_data`, then atomically sets `review_status = confirmed` and records
+  `structured_json`, then atomically sets `review_status = confirmed` and records
   `reviewed_at`. It does **not** write a domain record because no domain tables exist yet.
 - `PATCH /inbox/:id/reject` — atomically sets `review_status = rejected` and records `reviewed_at`
-- Basic inline edit for `extracted_data` fields before confirming
+- Basic inline edit for `structured_json` fields before confirming
 - Manual classification flow: a `needs_manual_classification` item must receive a valid
   item type and structured data and return to `review_status = pending` before confirmation
 - Confirmed and rejected items are removed from the review inbox
@@ -232,7 +244,7 @@ yet, but the structure is in place.
   yet — the tasks table does not exist until Phase 8.
 - A `needs_manual_classification` item cannot be confirmed until manually corrected and returned to pending.
 - Rejecting any reviewable item marks it rejected and removes it from the review inbox.
-- Inline editing of `extracted_data` fields before confirming works and is saved.
+- Inline editing of `structured_json` fields before confirming works and is saved.
 - The confirm mechanism is idempotent — confirming an already-confirmed item is a no-op.
 - The reject mechanism is idempotent — rejecting an already-rejected item is a no-op.
 
@@ -300,7 +312,7 @@ yet, but the structure is in place.
 - Audio download from Telegram servers
 - OpenAI Whisper transcription call
 - Transcribed text passed to the same classifier used for text
-- `capture_events.audio_url` populated with the stored audio file
+- `capture_events.audio_file_id` populated with the stored audio-file reference
 
 **Note on audio format:** Telegram voice notes are OGG format. Pass the correct MIME
 type (`audio/ogg`) to Whisper.
@@ -311,7 +323,7 @@ type (`audio/ogg`) to Whisper.
 
 **Definition of done:**
 - Sending a voice note to the Telegram bot creates the same pipeline as text
-- The transcription appears as the `raw_text` on the `capture_event`
+- The transcription appears in `capture_events.transcript`; raw source fields remain unchanged
 - The inbox item shows the transcript
 
 ---

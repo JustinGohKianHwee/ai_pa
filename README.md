@@ -69,13 +69,17 @@ that reads or mutates personal data. The webhook validates its own secret.
 
 ## Current status
 
-**Phase 1 — Scaffold complete.**
+**Phase 2 — Migration complete; Supabase application pending.**
 
-Frontend (`apps/web`) and backend (`services/api`) are scaffolded. Both run and pass
-their validation checks. No database schema, no Telegram integration, no AI calls yet.
+The initial Postgres schema exists as a migration
+(`supabase/migrations/0001_capture_pipeline.sql`) creating the three core pipeline tables
+`capture_events`, `inbox_items`, and `agent_runs`. The migration has been validated against
+a real Postgres 16 instance but is not yet applied to a Supabase project — see
+[Database / migrations](#database--migrations) below. No backend DB calls, Telegram, or AI
+integration yet.
 
-Next step: Phase 2 — database schema (Supabase migrations for `capture_events`,
-`inbox_items`, and `agent_runs`).
+After the migration is applied and verified in the Supabase project, the next step is
+Phase 3 — backend skeleton (`POST /capture/text`, `GET /inbox`).
 
 ---
 
@@ -126,6 +130,37 @@ cd services/api
 ```
 
 Expected output: `2 passed` for the `/health` endpoint tests.
+
+---
+
+## Database / migrations
+
+The schema lives in `supabase/migrations/`. The current migration
+(`0001_capture_pipeline.sql`) creates `capture_events`, `inbox_items`, and `agent_runs`.
+
+### Apply it (no install required)
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. In the project, open the **SQL Editor**.
+3. Paste the entire contents of `supabase/migrations/0001_capture_pipeline.sql` and run it.
+4. Verify in the **Table Editor** that all three tables exist, then insert a test row
+   into each to confirm the schema works.
+5. Copy the project **URL** and keys into `services/api/.env.local`:
+   - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+   - The service role key is **server-side only** — never put it in frontend code or commit it.
+
+### Alternative: Supabase CLI (optional, needs install)
+
+If you later install the [Supabase CLI](https://supabase.com/docs/guides/cli), you can
+apply migrations from the terminal instead of pasting SQL:
+
+```bash
+supabase link --project-ref <your-project-ref>
+supabase db push        # applies supabase/migrations/*.sql to the linked project
+```
+
+> Note: the migration was validated locally against Postgres 16 (via Docker) during
+> Phase 2, but has **not** been applied to any Supabase project yet — do step 3 above.
 
 ---
 

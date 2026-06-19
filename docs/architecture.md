@@ -28,7 +28,7 @@ Capture Surface
       ▼
   [Backend API]
   - receive confirmation
-  - validate inbox_item item_type, extracted_data, and review_status
+  - validate inbox_item item_type, structured_json, and review_status
   - mark confirmed and record reviewed_at
   - if the domain module exists, create exactly one linked domain record
     in the same atomic transaction
@@ -54,10 +54,11 @@ passing through steps 1–4.
 
 **What happens here:**
 - The raw input arrives at a backend webhook endpoint
-- It is written immediately to `capture_events` as an immutable record
+- It is written immediately to `capture_events` before any AI work
 - If the input is a voice note, it is passed to the transcription layer
 - The raw text is then passed to the classification layer
-- The capture_event is never modified after this point
+- Raw source fields are never modified; transcript, processing status, and safe metadata
+  may be updated by later pipeline steps
 
 **Key principle:** Capture is fast and cheap. The system should never lose a capture. Even
 if classification fails, the raw capture_event exists and can be reprocessed.
@@ -93,7 +94,7 @@ requires the correct MIME type (`audio/ogg`). Do not pass the wrong content-type
 - The raw text is sent to Claude with a structured system prompt
 - Claude returns a JSON object containing:
   - `item_type`: what kind of item this is (task / finance / calendar / food / investment / note / journal / unknown)
-  - `extracted_data`: structured fields relevant to that type (amount, date, merchant, due_date, urgency, etc.)
+  - `structured_json`: structured fields relevant to that type (amount, date, merchant, due_date, urgency, etc.)
   - `confidence`: how confident the AI is in its classification
   - `summary`: a short human-readable summary of what was captured
 
@@ -111,11 +112,11 @@ Raw `capture_events` are written before any AI work begins. If AI classification
 for any reason, the capture is never lost.
 
 If Claude returns an error, times out, or returns invalid structured output:
-- The `capture_event` already exists and is unaffected
+- The `capture_event` already exists and its raw source fields are unaffected
 - An `inbox_item` is created with `item_type = "unknown"`,
-  `review_status = "needs_manual_classification"`, and `processing_status` set to
-  `classification_failed` or `invalid_ai_output`
-- `extracted_data` is set to `{}`; safe error metadata may be retained separately
+  `review_status = "needs_manual_classification"`; the linked capture_event's
+  `processing_status` is set to `classification_failed` or `invalid_ai_output`
+- `structured_json` is set to `{}`; safe error metadata may be retained separately
 - An `agent_runs` row is written with the error detail
 - The item appears in the dashboard review inbox
 - The user must manually choose a valid `item_type` and provide valid structured data;
@@ -124,9 +125,9 @@ If Claude returns an error, times out, or returns invalid structured output:
 
 If AI returns structurally valid JSON but with invalid field values (e.g. a date that
 does not parse, an amount that is not a number):
-- The backend validates `extracted_data` before accepting it
+- The backend validates `structured_json` before accepting it
 - Invalid fields are stripped or set to `null` rather than rejecting the whole response
-- The item is stored with whatever valid data was extracted; `extracted_data` may include
+- The item is stored with whatever valid data was extracted; `structured_json` may include
   a `validation_warnings` array noting which fields were dropped
 - The user sees the partial data and can correct it manually before confirming
 
@@ -139,13 +140,15 @@ does not parse, an amount that is not a number):
 **Storage:** `inbox_items` table in Supabase
 
 **What an inbox_item contains:**
-- Reference to the original `capture_event`
+- Required reference to the original `capture_event`
 - `item_type` — `task`, `finance`, `calendar`, `food`, `investment`, `note`, `journal`, or `unknown`
-- `extracted_data` — the structured fields the AI extracted (JSONB)
-- `ai_confidence` — how confident the AI was
+- `title` and `body` — human-readable summary and detail
+- `structured_json` — the structured fields the AI extracted (JSONB)
+- `confidence` — AI confidence from 0 to 1, or null when not classified
 - `review_status` — `pending`, `needs_manual_classification`, `confirmed`, or `rejected`
-- Optional `processing_status` — `received`, `classified`, `classification_failed`, or `invalid_ai_output`
-- `created_at`, `reviewed_at`, `confirmed_at`, and `rejected_at` timestamps
+- `created_at`, `updated_at`, and `reviewed_at` timestamps
+
+Technical `processing_status` belongs to the linked `capture_event`, not the inbox item.
 
 **What the user sees:**
 - All items where `review_status` is `pending` or `needs_manual_classification`
@@ -163,7 +166,7 @@ does not parse, an amount that is not a number):
 
 Confirmation is a single atomic operation. When the user confirms an item:
 1. The backend validates the inbox_item exists and has `review_status = pending`
-2. The backend validates its `item_type` and `extracted_data`
+2. The backend validates its `item_type` and `structured_json`
 3. If a domain module exists for the type, the backend creates exactly one linked domain
    record, marks the inbox_item confirmed, and records `reviewed_at` in one transaction
 4. If no domain module exists yet for the type, the same user-review transaction only
@@ -204,16 +207,17 @@ inbox; domain views are secondary screens.
 ## Layer 6: Audit coverage
 
 **Raw input history — `capture_events`:**
-Every raw capture is immutable and remains the ground-truth input history.
+Every raw capture is stored before AI work. Its raw source fields remain ground truth while
+technical processing fields may advance.
 
 **AI call audit — `agent_runs` (Phase 2+):**
-Every AI model call is recorded in `agent_runs`: model, call type, token count, latency,
-and a summary of the prompt and result. This is the transparency log for all AI work
-done by the system, including classification failures.
+Every AI model call is recorded in `agent_runs` with optional capture/inbox references,
+`agent_name`, model, safe input/output JSON, error JSON, and creation time. This is the
+transparency log for AI work, including classification failures.
 
-**User review audit — inbox_item state and timestamps:**
-The `inbox_items` table carries `review_status`, `reviewed_at`, `confirmed_at`, and
-`rejected_at`. These provide a lightweight record of the user's review decision.
+**User review audit — inbox_item state and timestamp:**
+The `inbox_items` table carries `review_status` and `reviewed_at`. Together they record
+the user's decision and when it occurred.
 No separate user-action table is needed for the early phases.
 
 **Richer audit log (deferred):**

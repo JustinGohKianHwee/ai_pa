@@ -98,7 +98,7 @@ Every piece of data in this system follows the same path:
 [2] CLASSIFY / EXTRACT
     AI determines intent and extracts structured fields
     Creates an inbox_item with review_status = pending
-    The original capture_event is never modified
+    The original raw input fields are never modified
 
 [3] PENDING INBOX  ← first end-to-end milestone (Phases 4–6)
     Classified item waits for user review
@@ -111,7 +111,7 @@ Every piece of data in this system follows the same path:
     User confirms or rejects
 
 [5] ATOMIC CONFIRMATION
-    Explicit user confirmation validates item_type and extracted_data
+    Explicit user confirmation validates item_type and structured_json
     If the domain module exists, exactly one linked domain record is created
     inbox_item review_status becomes confirmed and reviewed_at is recorded
     These writes occur in one transaction with no visible intermediate state

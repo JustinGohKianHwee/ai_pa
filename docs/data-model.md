@@ -1,7 +1,8 @@
 # Data Model
 
-Conceptual database entities for the AI personal assistant. This document describes the
-intended data model — no SQL has been written yet. Schema implementation begins in Phase 2.
+Database entities for the AI personal assistant. The three core pipeline entities below
+are implemented as of Phase 2 — see `supabase/migrations/0001_capture_pipeline.sql`. The
+domain and future entities remain conceptual and are built per-module in later phases.
 
 The entities are organised in pipeline order: capture first, domain records last.
 
@@ -9,44 +10,58 @@ The entities are organised in pipeline order: capture first, domain records last
 
 ## Core pipeline entities
 
+> Implemented in Phase 2 (`supabase/migrations/0001_capture_pipeline.sql`). The field
+> lists below match the actual migration. There is no `user_id` column yet — the system
+> is single-user until auth/RLS arrives in Phase 15.
+
 ### `capture_events`
 
-The immutable raw input log. Every message, voice note, or typed input creates one row.
-This table is append-only — rows are never updated or deleted.
+The durable raw input history. Every message, voice note, or typed input creates one row.
+Raw source fields are immutable ground truth. Processing fields such as `transcript`,
+`processing_status`, and safe metadata may be updated as later pipeline steps run.
 
-**Key fields:**
-- `id` — UUID primary key
-- `source` — where it came from: `telegram_text`, `telegram_voice`, `web_form`
-- `raw_text` — the original text (or transcript, if voice)
-- `audio_url` — Supabase Storage URL for the original audio file (voice only)
-- `received_at` — when the capture arrived (UTC)
-- `user_id` — owner
+**Columns:**
+- `id` — UUID primary key (`gen_random_uuid()`)
+- `source` — where it came from, e.g. `telegram_text`, `telegram_voice`, `web_form` (not null)
+- `source_message_id` — external id from the source system (e.g. Telegram message id), for dedupe/trace
+- `raw_text` — the original text exactly as received (null for voice until transcribed)
+- `transcript` — speech-to-text transcript for voice captures (Phase 10+)
+- `audio_file_id` — reference to the stored original audio file (voice only)
+- `processing_status` — where the capture is in the AI pipeline: `received` / `classified` / `classification_failed` / `invalid_ai_output` (not null, default `received`, CHECK-constrained)
+- `metadata` — JSONB for source-specific context and safe error metadata (not null, default `{}`)
+- `created_at` — when the capture arrived, UTC (not null, default `now()`)
 
 **Why it exists:** The raw capture is the ground truth. If the AI misclassifies something,
 the original capture_event still exists and can be reprocessed. Nothing downstream can
-corrupt or lose the original input.
+corrupt or lose the original input. The capture is written **before** any AI work, so a
+failure in classification never loses the input.
 
 ---
 
 ### `inbox_items`
 
 Processed items awaiting or recording user review. Every capture_event that goes through
-the AI classification pipeline produces one inbox_item.
+the AI classification pipeline produces one inbox_item. This is the only mutable core
+table — `updated_at` is maintained automatically by a trigger.
 
-**Key fields:**
-- `id` — UUID primary key
-- `capture_event_id` — FK to `capture_events`
-- `item_type` — `task`, `finance`, `calendar`, `food`, `investment`, `note`, `journal`, or `unknown`
-- `extracted_data` — JSONB of the structured fields extracted for the item type
-- `ai_confidence` — float 0–1, how confident the AI was
-- `review_status` — `pending` / `needs_manual_classification` / `confirmed` / `rejected`
-- `processing_status` — optional: `received` / `classified` / `classification_failed` / `invalid_ai_output`
-- `reviewed_at` — when the user confirmed or rejected the item
-- `confirmed_at` — when the user confirmed (null if not confirmed)
-- `rejected_at` — when the user rejected (null if not rejected)
-- `created_at`
+**Columns:**
+- `id` — UUID primary key (`gen_random_uuid()`)
+- `capture_event_id` — required FK to `capture_events`
+- `item_type` — `task` / `finance` / `calendar` / `food` / `investment` / `note` / `journal` / `unknown` (not null, CHECK-constrained). **`classification_failed` is NOT a value here** — it is a `processing_status` on `capture_events`.
+- `review_status` — `pending` / `needs_manual_classification` / `confirmed` / `rejected` (not null, default `pending`, CHECK-constrained)
+- `title` — short human-readable summary
+- `body` — longer free-text detail
+- `structured_json` — JSONB of the structured fields extracted for the item type (not null, default `{}`)
+- `confidence` — numeric, AI confidence 0–1 (null if not classified, CHECK-constrained)
+- `reviewed_at` — when the user confirmed or rejected the item (null until reviewed)
+- `created_at` — not null, default `now()`
+- `updated_at` — not null, default `now()`, auto-advanced on every UPDATE by the `set_updated_at()` trigger
 
-**`extracted_data` shape by item type:**
+Review timestamp constraints require `reviewed_at` to be null while an item is pending or
+needs manual classification, and non-null after confirmation or rejection. An item in
+`needs_manual_classification` must have `item_type = unknown`.
+
+**`structured_json` shape by item type:**
 
 ```
 task:
@@ -75,9 +90,13 @@ note:
 a user explicitly confirms a valid pending row. When its domain module exists, the domain
 record and `review_status = confirmed` transition occur in one transaction.
 
-**Idempotency:** Domain tables enforce uniqueness on `inbox_item_id`. The review-state
-transition is applied only once. Together, one inbox_item
-produces at most one domain record, regardless of how many times the user clicks Confirm.
+**Review-state audit:** A single `reviewed_at` timestamp plus `review_status` captures the
+review outcome — there are no separate `confirmed_at` / `rejected_at` columns. `review_status`
+tells you whether the item was confirmed or rejected; `reviewed_at` tells you when.
+
+**Idempotency:** Domain tables (later phases) enforce uniqueness on `inbox_item_id`, and
+the review-state transition is applied only once. Together, one inbox_item produces at most
+one domain record, regardless of how many times the user clicks Confirm.
 
 **Confirmed without a domain record:** An inbox_item can be confirmed even if no domain
 module exists yet for its item type. In this case, `review_status` becomes `confirmed`,
@@ -85,13 +104,15 @@ module exists yet for its item type. In this case, `review_status` becomes `conf
 later does not automatically backfill these items; retroactive backfill is optional future
 or administrative work and is not required by the module phase.
 
-**Classification failure:** `classification_failed` is a processing status, never an item
-type. If classification fails or returns invalid structured data, the raw capture remains
-unchanged and the inbox_item uses `item_type = unknown`,
-`review_status = needs_manual_classification`, and the appropriate failure
-`processing_status`. The dashboard shows the item, but it cannot be confirmed directly.
-The user must choose a valid item type and provide valid structured data, which returns the
-item to `review_status = pending` before normal confirmation or rejection.
+**Classification failure:** `classification_failed` is a `processing_status` on
+`capture_events`, never an `item_type`. If classification fails or returns invalid
+structured data, the raw capture remains unchanged (with `processing_status` set to
+`classification_failed` or `invalid_ai_output`) and the inbox_item uses
+`item_type = unknown` and `review_status = needs_manual_classification`. Safe error
+metadata is stored in `capture_events.metadata` / `inbox_items.structured_json`, with full
+detail in `agent_runs.error_json`. The dashboard shows the item, but it cannot be confirmed
+directly. The user must choose a valid item type and provide valid structured data, which
+returns the item to `review_status = pending` before normal confirmation or rejection.
 
 ---
 
@@ -99,24 +120,24 @@ item to `review_status = pending` before normal confirmation or rejection.
 
 A log of every AI model call made by the backend. Append-only.
 
-**Key fields:**
-- `id` — UUID primary key
-- `inbox_item_id` — FK to `inbox_items` (null if the AI call was not for a specific item)
-- `model` — which model was used (e.g. `claude-sonnet-4-6`, `whisper-1`)
-- `call_type` — what the call was for: `classify`, `transcribe`, `extract`
-- `prompt_summary` — short description of what was sent (not the full prompt)
-- `result_summary` — short description of what came back
-- `tokens_used` — total tokens (input + output, for LLM calls)
-- `latency_ms` — how long the call took
-- `created_at`
+**Columns:**
+- `id` — UUID primary key (`gen_random_uuid()`)
+- `capture_event_id` — FK to `capture_events` (null if the call was not tied to a specific capture)
+- `inbox_item_id` — FK to `inbox_items` (null if the call did not produce/update a specific item)
+- `agent_name` — logical name of the agent/step, e.g. `classifier`, `transcriber` (not null)
+- `model` — model identifier, e.g. `claude-sonnet-4-6`, `whisper-1`
+- `input_json` — safe summary of the call input, not necessarily the full prompt (not null, default `{}`)
+- `output_json` — safe summary of the call output (not null, default `{}`)
+- `error_json` — error detail when the call failed (null on success)
+- `created_at` — not null, default `now()`
 
-**Why it exists:** Transparency and cost tracking. Every AI call is logged so you can
-audit what the system did, debug misclassifications, and see API usage over time.
+**Why it exists:** Transparency and debugging. Every AI call is logged so you can audit
+what the system did and diagnose misclassifications or failed processing.
 
 `capture_events` provide immutable raw input history. `agent_runs` cover AI call audit.
-User review audit is covered by `inbox_items.review_status`, `reviewed_at`, and the
-confirmation/rejection timestamps. A richer `audit_log` or `inbox_review_events` table
-with full edit history is explicitly deferred future work.
+User review audit is covered by `inbox_items.review_status` and `reviewed_at`. A richer
+`audit_log` or `inbox_review_events` table with full edit history is explicitly deferred
+future work.
 
 ---
 
