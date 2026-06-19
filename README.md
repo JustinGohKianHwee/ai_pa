@@ -69,12 +69,63 @@ that reads or mutates personal data. The webhook validates its own secret.
 
 ## Current status
 
-**Phase 0 — Foundation complete.**
+**Phase 1 — Scaffold complete.**
 
-The repo structure and all product documentation are in place. No application code, no
-database schema, no dependencies have been created yet.
+Frontend (`apps/web`) and backend (`services/api`) are scaffolded. Both run and pass
+their validation checks. No database schema, no Telegram integration, no AI calls yet.
 
-Next step: Phase 1 — scaffold the frontend and backend shells and connect to Supabase.
+Next step: Phase 2 — database schema (Supabase migrations for `capture_events`,
+`inbox_items`, and `agent_runs`).
+
+---
+
+## How to run locally
+
+### Prerequisites
+
+- Node.js 18.18+ and npm
+- Python 3.11+
+
+### Frontend
+
+```bash
+cd apps/web
+npm install        # already done after Phase 1 scaffold
+npm run dev        # http://localhost:3000
+```
+
+The home page shows a Phase 1 placeholder with the pipeline overview.
+
+### Backend
+
+```bash
+cd services/api
+
+# First time only: create the virtual environment and install deps
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt   # Windows
+# source .venv/bin/activate && pip install -r requirements.txt  # macOS/Linux
+
+# Copy env template and fill in real values before Phase 2
+cp ../../.env.example .env.local   # then edit .env.local
+
+# Start the server
+.venv/Scripts/uvicorn app.main:app --reload     # Windows
+# .venv/bin/uvicorn app.main:app --reload       # macOS/Linux
+# → http://localhost:8000
+# → http://localhost:8000/docs  (Swagger UI)
+# → http://localhost:8000/health
+```
+
+### Backend tests
+
+```bash
+cd services/api
+.venv/Scripts/pytest          # Windows
+# .venv/bin/pytest            # macOS/Linux
+```
+
+Expected output: `2 passed` for the `/health` endpoint tests.
 
 ---
 

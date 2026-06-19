@@ -34,7 +34,7 @@ discipline before writing any application code.
 
 ---
 
-## Phase 1 — Scaffold frontend, backend, and Supabase
+## Phase 1 — Scaffold frontend, backend, and Supabase ✓ complete
 
 **Goal:** Create the empty shells for all three system components. Nothing works end-to-end
 yet, but the structure is in place.

@@ -1,8 +1,9 @@
 # services/api — Backend API
 
-**Status: Not yet scaffolded. Reserved for Phase 1.**
+**Status: Phase 1 scaffold complete.**
 
-This directory will contain the FastAPI Python backend service.
+This directory contains the minimal FastAPI backend scaffold. Phase 1 exposes only
+`GET /health`; no database client, writes, Telegram logic, or AI calls are implemented.
 
 ## Planned stack
 - Python 3.11+
@@ -23,4 +24,4 @@ The backend is responsible for:
 The backend enforces the core pipeline:
 **capture → classify/extract → pending inbox → (await review) → confirm → domain record**
 
-## Scaffold begins in: Phase 1
+## Scaffold completed in: Phase 1
