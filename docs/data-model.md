@@ -27,7 +27,7 @@ Raw source fields are immutable ground truth. Processing fields such as `transcr
 - `raw_text` — the original text exactly as received (null for voice until transcribed)
 - `transcript` — speech-to-text transcript for voice captures (Phase 10+)
 - `audio_file_id` — reference to the stored original audio file (voice only)
-- `processing_status` — where the capture is in the AI pipeline: `received` / `classified` / `classification_failed` / `invalid_ai_output` (not null, default `received`, CHECK-constrained)
+- `processing_status` — where the capture is in the AI pipeline: `received` / `transcription_failed` / `classified` / `classification_failed` / `invalid_ai_output` (not null, default `received`, CHECK-constrained; `transcription_failed` added by migration 0004)
 - `metadata` — JSONB for source-specific context and safe error metadata (not null, default `{}`)
 - `created_at` — when the capture arrived, UTC (not null, default `now()`)
 
@@ -104,6 +104,12 @@ module exists yet for its item type. In this case, `review_status` becomes `conf
 later does not automatically backfill these items; retroactive backfill is optional future
 or administrative work and is not required by the module phase.
 
+**Transcription failure (Phase 10+):** For voice captures, `transcription_failed` is a
+distinct `processing_status` set when the Whisper download or transcription step fails —
+before classification is attempted. The inbox_item is marked `needs_manual_classification`
+and no classifier `agent_runs` row is written. Classification failure and transcription
+failure are always distinguishable by `processing_status` alone.
+
 **Classification failure:** `classification_failed` is a `processing_status` on
 `capture_events`, never an `item_type`. If classification fails or returns invalid
 structured data, the raw capture remains unchanged (with `processing_status` set to
@@ -146,36 +152,57 @@ future work.
 These tables store confirmed records. A row is only written when the user confirms an
 `inbox_item`. Each row maintains a reference back to the `inbox_item` that created it.
 
-### `tasks` — Phase 8+
+### `tasks` — Phase 8 (implemented, `supabase/migrations/0002_tasks.sql`)
 
-Confirmed action items.
+Confirmed action items. Exactly one row per source `inbox_item` (UNIQUE `inbox_item_id`),
+written only by the `confirm_task_item` RPC in the same transaction that confirms the item.
 
-**Key fields:**
-- `id`, `inbox_item_id` (FK), `user_id`
-- `title` — the task description
-- `urgency` — `today`, `this_week`, `this_month`, `someday`
-- `due_date` — optional date
-- `status` — `open`, `completed`
-- `tags` — text array
-- `notes` — free text
-- `completed_at`, `created_at`, `updated_at`
+**Columns (actual migration):**
+- `id` — UUID primary key (`gen_random_uuid()`)
+- `inbox_item_id` — required FK to `inbox_items`, **UNIQUE** (idempotency backstop)
+- `title` — task description, not null (sourced from the canonical `inbox_items.title`)
+- `urgency` — `today` / `this_week` / `someday`, or null. Matches the Phase 6
+  `TaskStructuredJson` schema. **`this_month` is intentionally not a value** — the classifier
+  and the edit endpoint can never produce it, so it would be dead.
+- `due_date` — **text**, nullable. Stores the AI's free-text date verbatim (e.g. "next
+  Friday"); not parsed to a real date in Phase 8.
+- `notes` — free text, nullable
+- `status` — `open` / `completed` (not null, default `open`, CHECK-constrained)
+- `completed_at` — timestamptz, null while open; CHECK ties it to `status`
+- `created_at`, `updated_at` — not null, default `now()`; `updated_at` auto-advanced by the
+  shared `set_updated_at()` trigger
+
+No `user_id` (single-user until Phase 15) and no `tags` (not in the Phase 6 task schema).
+These remain possible future additions, not part of the Phase 8 MVP.
 
 ---
 
-### `money_events` — Phase 9+
+### `money_events` — Phase 9 (implemented, `supabase/migrations/0003_money_events.sql`)
 
-Confirmed expense or income records.
+Confirmed finance records. Exactly one row per source `inbox_item` (UNIQUE `inbox_item_id`),
+written only by the `confirm_finance_item` RPC in the same transaction that confirms the item.
+Immutable in Phase 9 (no edit/delete) — hence no `updated_at`.
 
-**Key fields:**
-- `id`, `inbox_item_id` (FK), `user_id`
-- `amount` — decimal
-- `currency` — ISO code (e.g. `SGD`, `USD`)
-- `direction` — `expense` or `income`
-- `merchant` — who you paid / who paid you
-- `category` — user-defined category (food, transport, entertainment, etc.)
-- `occurred_at` — when the transaction happened
-- `notes`
-- `created_at`
+**Columns (actual migration):**
+- `id` — UUID primary key (`gen_random_uuid()`)
+- `inbox_item_id` — required FK to `inbox_items`, **UNIQUE** (idempotency backstop)
+- `amount` — numeric, not null, **CHECK `amount > 0`**
+- `currency` — text, not null (e.g. `SGD`, `USD`; default `SGD` from the classifier)
+- `direction` — `expense` / `income`, CHECK-constrained
+- `merchant`, `category`, `notes` — text, nullable
+- `occurred_at` — **text**, nullable. The AI's free-text date verbatim (e.g. "yesterday");
+  not parsed to a timestamp in Phase 9. Finance views order by `created_at`.
+- `created_at` — not null, default `now()`
+
+**Income decision (Phase 9):** `direction` permits both values (to match this model and
+avoid a future widen-migration), but Phase 9 **only creates expense rows**.
+`confirm_finance_item` hard-requires `direction='expense'`. A finance **income** item confirms
+via the Phase 7 **status-only** path (`review_status='confirmed'`, `reviewed_at` set, no
+`money_event`) — income's module does not exist yet, so (like pre-Phase-8 task items) it is
+**not backfilled** when income support later lands.
+
+No `user_id` (single-user until Phase 15). Totals in the `/finance` view are grouped by
+currency, then category — amounts in different currencies are never summed.
 
 ---
 

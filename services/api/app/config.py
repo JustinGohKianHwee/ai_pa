@@ -1,13 +1,13 @@
 """
 Read all environment variables for the AI Personal Assistant backend.
 
-Nothing is instantiated here in Phase 1 — config is loaded by main.py at startup.
-Supabase, Anthropic, and Telegram clients are initialised in later phases when
-the respective features are built.
+No external client is instantiated at import time. Supabase client creation begins in
+Phase 3 and remains lazy; Phase 4 reads Telegram settings at request time. Anthropic and
+OpenAI clients arrive in their later phases.
 """
 import os
 
-# Supabase — set in Phase 2 when the database schema is created
+# Supabase — active from Phase 3; SERVICE_ROLE_KEY is server-side only
 SUPABASE_URL: str | None = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY: str | None = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY: str | None = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -18,7 +18,7 @@ ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
 # OpenAI (Whisper) — set in Phase 10 when voice transcription is built
 OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
 
-# Telegram — set in Phase 4 when the capture bot is built
+# Telegram — active from Phase 4; read at request time by the webhook
 TELEGRAM_BOT_TOKEN: str | None = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_WEBHOOK_SECRET: str | None = os.getenv("TELEGRAM_WEBHOOK_SECRET")
 TELEGRAM_USER_ID: str | None = os.getenv("TELEGRAM_USER_ID")

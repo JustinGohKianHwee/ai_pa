@@ -80,7 +80,8 @@ if classification fails, the raw capture_event exists and can be reprocessed.
 **Note on audio format:** Telegram voice notes are OGG format. Whisper accepts this but
 requires the correct MIME type (`audio/ogg`). Do not pass the wrong content-type.
 
-**Deferred until:** Phase 10. Text-only capture is sufficient for Phases 4–9.
+Transcription is currently pinned to English (`language="en"`) to prevent incorrect automatic
+language detection. Voice transcription was implemented and manually verified in Phase 10.
 
 ---
 
@@ -88,11 +89,11 @@ requires the correct MIME type (`audio/ogg`). Do not pass the wrong content-type
 
 **What it is:** The AI brain that interprets natural language and extracts structured data.
 
-**Technology:** Claude (Anthropic) — primary. OpenAI — fallback.
+**Technology:** OpenAI (`gpt-4o-mini`) — approved primary classifier as of Phase 6.
 
 **What happens here:**
-- The raw text is sent to Claude with a structured system prompt
-- Claude returns a JSON object containing:
+- The raw text is sent to OpenAI with a structured system prompt
+- OpenAI returns a JSON object containing:
   - `item_type`: what kind of item this is (task / finance / calendar / food / investment / note / journal / unknown)
   - `structured_json`: structured fields relevant to that type (amount, date, merchant, due_date, urgency, etc.)
   - `confidence`: how confident the AI is in its classification
@@ -111,7 +112,7 @@ that does not exist). Always validate extracted data before writing to the datab
 Raw `capture_events` are written before any AI work begins. If AI classification fails
 for any reason, the capture is never lost.
 
-If Claude returns an error, times out, or returns invalid structured output:
+If OpenAI returns an error, times out, or returns invalid structured output:
 - The `capture_event` already exists and its raw source fields are unaffected
 - An `inbox_item` is created with `item_type = "unknown"`,
   `review_status = "needs_manual_classification"`; the linked capture_event's
@@ -123,13 +124,16 @@ If Claude returns an error, times out, or returns invalid structured output:
   the item then returns to `review_status = "pending"` before it can be confirmed
 - No domain record is created
 
-If AI returns structurally valid JSON but with invalid field values (e.g. a date that
-does not parse, an amount that is not a number):
-- The backend validates `structured_json` before accepting it
-- Invalid fields are stripped or set to `null` rather than rejecting the whole response
-- The item is stored with whatever valid data was extracted; `structured_json` may include
-  a `validation_warnings` array noting which fields were dropped
-- The user sees the partial data and can correct it manually before confirming
+If AI returns structurally valid JSON but with invalid field values (e.g. a wrong field
+name, a disallowed urgency literal, a missing required field):
+- The backend validates `structured_json` against a per-type Pydantic schema with
+  `extra="forbid"` — unknown or misspelled fields cause immediate rejection
+- If validation fails, the item receives `review_status = "needs_manual_classification"`,
+  the linked `capture_event` receives `processing_status = "invalid_ai_output"`, and an
+  `agent_runs` row is written with the error detail
+- The user must manually correct the `item_type` and `structured_json` fields via the
+  Edit controls; when a valid, non-unknown type and valid data are saved the item
+  transitions to `review_status = "pending"` and can then be confirmed
 
 ---
 
@@ -332,7 +336,7 @@ These are not in scope until the core pipeline is working.
 ## Why start simple
 
 The first implementation does one thing: take a Telegram text message, classify it with
-Claude, and show it in a pending inbox. That is the entire Phase 4–5 loop.
+OpenAI, and show it in a pending inbox. That is the Phase 4–6 milestone.
 
 Every subsequent phase adds one thing:
 - Phase 6: the classification actually works end-to-end

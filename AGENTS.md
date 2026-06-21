@@ -120,6 +120,6 @@ transaction.
 | Frontend | Next.js 15, TypeScript strict, Tailwind CSS |
 | Backend | FastAPI, Python 3.11+ |
 | Database | Supabase Postgres |
-| AI (primary) | Claude (Anthropic SDK) |
+| AI (classification) | OpenAI (`gpt-4o-mini`) |
 | AI (transcription) | OpenAI Whisper |
 | Capture | Telegram bot webhook |

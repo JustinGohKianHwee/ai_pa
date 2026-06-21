@@ -69,17 +69,31 @@ that reads or mutates personal data. The webhook validates its own secret.
 
 ## Current status
 
-**Phase 2 — Migration complete; Supabase application pending.**
+**Phase 10 — voice transcription ✓ complete.**
 
-The initial Postgres schema exists as a migration
-(`supabase/migrations/0001_capture_pipeline.sql`) creating the three core pipeline tables
-`capture_events`, `inbox_items`, and `agent_runs`. The migration has been validated against
-a real Postgres 16 instance but is not yet applied to a Supabase project — see
-[Database / migrations](#database--migrations) below. No backend DB calls, Telegram, or AI
-integration yet.
+Telegram voice notes are now captured through the same pipeline as text. The webhook detects
+`message.voice`, downloads the OGG file from Telegram (with a 25 MB size guard), transcribes
+it using OpenAI Whisper (`whisper-1`, pinned to English with `language="en"`), then feeds the transcript into the existing `gpt-4o-mini`
+classifier. Two `agent_runs` rows are written on the happy path: one for the transcriber and one
+for the text classifier. Transcription failure (config missing, download error, empty transcript,
+or DB persistence failure) marks the inbox item `needs_manual_classification` and sets
+`processing_status="transcription_failed"` without disrupting the classification pipeline.
+Migration 0005 adds `UNIQUE (source, source_message_id)` on `capture_events` and
+`UNIQUE (capture_event_id)` on `inbox_items`, preventing duplicate rows under concurrent
+Telegram retries even in the race window between capture and inbox insert. 186 backend tests pass.
 
-After the migration is applied and verified in the Supabase project, the next step is
-Phase 3 — backend skeleton (`POST /capture/text`, `GET /inbox`).
+Phase 9 (finance ✓ complete): confirming a finance **expense** calls the `confirm_finance_item`
+RPC, atomically creating a linked `money_events` row. Confirmed expenses appear in `/finance`
+with totals grouped by currency and category. Finance **income** confirms status-only (no domain
+record). Migrations `0001`–`0005` are applied to the project.
+
+**Phase 10 manual E2E passed:** an English Telegram voice note produced one
+`telegram_voice` capture with a stored transcript and `processing_status="classified"`, one
+linked inbox item, and separate `transcriber` / `text_classifier` audit rows. Duplicate replay
+created no additional rows.
+
+Milestones: **Phase 6** — classification end-to-end. **Phase 7** — review layer. **Phase 8** —
+MVP (tasks + atomic confirm). **Phase 9** — finance expenses. **Phase 10** — voice transcription.
 
 ---
 
@@ -95,10 +109,16 @@ Phase 3 — backend skeleton (`POST /capture/text`, `GET /inbox`).
 ```bash
 cd apps/web
 npm install        # already done after Phase 1 scaffold
+
+# Copy env template and fill in the values
+# Create apps/web/.env.local with:
+#   NEXT_PUBLIC_API_URL=http://localhost:8000
+#   DEV_ADMIN_TOKEN=<same value as services/api/.env.local>
+
 npm run dev        # http://localhost:3000
 ```
 
-The home page shows a Phase 1 placeholder with the pipeline overview.
+Open http://localhost:3000/inbox to see the dashboard inbox.
 
 ### Backend
 
@@ -110,7 +130,7 @@ python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt   # Windows
 # source .venv/bin/activate && pip install -r requirements.txt  # macOS/Linux
 
-# Copy env template and fill in real values before Phase 2
+# Copy env template and fill in the values needed by protected database routes
 cp ../../.env.example .env.local   # then edit .env.local
 
 # Start the server
@@ -129,14 +149,22 @@ cd services/api
 # .venv/bin/pytest            # macOS/Linux
 ```
 
-Expected output: `2 passed` for the `/health` endpoint tests.
+Expected output: `186 passed` covering health, Supabase client, inbox read/review/edit,
+task + finance confirmation, the tasks and finance APIs, AI classification, Telegram
+webhook text capture, and voice transcription. All external calls are mocked.
 
 ---
 
 ## Database / migrations
 
-The schema lives in `supabase/migrations/`. The current migration
-(`0001_capture_pipeline.sql`) creates `capture_events`, `inbox_items`, and `agent_runs`.
+The schema lives in `supabase/migrations/`. `0001_capture_pipeline.sql` creates
+`capture_events`, `inbox_items`, and `agent_runs`. `0002_tasks.sql` (Phase 8) adds the
+`tasks` table and the `confirm_task_item` atomic-confirmation RPC. `0003_money_events.sql`
+(Phase 9) adds the `money_events` table and the `confirm_finance_item` RPC.
+`0004_capture_transcription_status.sql` (Phase 10) widens the `processing_status` CHECK
+to include `transcription_failed`. `0005_capture_unique_source.sql` (Phase 10) adds
+`UNIQUE (source, source_message_id)` on `capture_events` and `UNIQUE (capture_event_id)` on
+`inbox_items`. Apply migrations in order.
 
 ### Apply it (no install required)
 
@@ -159,8 +187,8 @@ supabase link --project-ref <your-project-ref>
 supabase db push        # applies supabase/migrations/*.sql to the linked project
 ```
 
-> Note: the migration was validated locally against Postgres 16 (via Docker) during
-> Phase 2, but has **not** been applied to any Supabase project yet — do step 3 above.
+> Migrations `0001`–`0005` are applied to this project's Supabase database. New environments
+> must still apply every migration in order.
 
 ---
 
@@ -216,7 +244,7 @@ ai_pa/
 | Frontend | Next.js 15 + TypeScript + Tailwind | App Router, server components, Vercel-native |
 | Backend | FastAPI + Python | Clean async API, great AI SDK support |
 | Database | Supabase Postgres | Managed Postgres, free tier, future RLS |
-| AI (primary) | Claude (Anthropic) | Best structured output for classification |
+| AI (classification) | OpenAI (`gpt-4o-mini`) | Approved Phase 6 structured classifier |
 | AI (transcription) | OpenAI Whisper | Best voice-to-text, cheap per minute |
 | Capture | Telegram bot | Works on any phone, free, webhook-based |
 | Frontend deploy | Vercel | Free tier, native Next.js |

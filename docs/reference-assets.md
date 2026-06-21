@@ -53,9 +53,10 @@ for each step.
 These patterns from the asset align with or directly inform our architecture:
 
 **Capture pipeline flow:**
-> `voice → Telegram bot → Whisper transcription → Claude classifier → database`
+> `voice → Telegram bot → Whisper transcription → AI classifier → database`
 
-This matches our planned pipeline exactly. The asset validates that this approach is
+This inspired the pipeline shape. The project uses OpenAI for Phase 6 classification;
+the asset is not a provider specification. The asset validates that this approach is
 buildable in a reasonable timeframe.
 
 **Table naming conventions (adapted for our model):**
@@ -72,7 +73,7 @@ similar.
   trigger AI. Otherwise API costs compound with every dashboard refresh.
 - Telegram voice notes are OGG format. Pass the correct MIME type (`audio/ogg`) to
   Whisper — the wrong content-type causes silent failures.
-- Always validate AI-returned IDs exist before writing. Claude can hallucinate entity IDs
+- Always validate AI-returned IDs exist before writing. AI models can hallucinate entity IDs
   that do not exist in your database. Always check before inserting FKs.
 - The `node-ical` library has a BigInt bundler issue on Vercel. Use `ical.js` instead
   for iCal parsing (relevant when calendar sync is added in Phase 12+).

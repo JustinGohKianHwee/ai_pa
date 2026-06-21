@@ -116,7 +116,7 @@ After a phase:
 | Frontend | Next.js 15, TypeScript strict, Tailwind CSS |
 | Backend | FastAPI, Python 3.11+ |
 | Database | Supabase Postgres |
-| AI (primary) | Claude via Anthropic SDK |
+| AI (classification) | OpenAI (`gpt-4o-mini`) |
 | AI (transcription) | OpenAI Whisper |
 | Capture | Telegram bot (python-telegram-bot or httpx webhooks) |
 | Frontend deploy | Vercel (Phase 16+) |

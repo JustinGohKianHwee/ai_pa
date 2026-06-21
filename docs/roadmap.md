@@ -104,32 +104,37 @@ chronological reads of the append-only tables.
 
 ---
 
-## Phase 3 — Backend skeleton
+## Phase 3 — Backend skeleton ✓ complete
 
-**Goal:** Build the FastAPI structure that will power the capture pipeline.
+**Goal:** Establish protected backend-only database connectivity without adding capture or
+inbox behavior yet.
 
 **What gets built:**
-- `services/api/routers/` structure
-- Supabase client wrapper (`lib/supabase.py`)
-- `POST /capture/text` — accepts `{ text, source }`, writes a `capture_events` row,
-  returns the created row (no AI yet — `item_type` is the stub `unknown`)
-- `GET /inbox` — returns reviewable `inbox_items` where `review_status` is `pending` or
-  `needs_manual_classification`
+- Backend-only Supabase client factory using `SUPABASE_URL` and
+  `SUPABASE_SERVICE_ROLE_KEY`, created lazily with no import-time queries
+- Reusable `DEV_ADMIN_TOKEN` dependency for private development routes
+- Public `GET /health`, independent of Supabase configuration
+- Protected, read-only `GET /health/db` connectivity check
+- Unit tests with the Supabase client mocked; no real network calls
 
 **What must NOT be built yet:**
+- Capture or inbox CRUD routes
 - Telegram webhook integration
 - AI classification calls
 - Confirmation / domain record writes
+- Frontend dashboard behavior
+- Auth or RLS
 
 **Definition of done:**
-- `POST /capture/text` with `{ "text": "test message", "source": "web_form" }` creates
-  a `capture_events` row in Supabase
-- `GET /inbox` returns an empty array (or existing rows)
-- Manual test via curl or httpie passes
+- `GET /health` returns 200 without Supabase credentials or a development token
+- `/health/db` rejects missing or invalid development tokens
+- With a valid token, `/health/db` performs only a read-only mocked connectivity query in tests
+- Missing Supabase settings fail clearly only when a DB-dependent route is used
+- The backend test suite passes without real Supabase network access
 
 ---
 
-## Phase 4 — Telegram text capture
+## Phase 4 — Telegram text capture ✓ complete
 
 **Goal:** Receive a Telegram text message and store it as a `capture_event`.
 
@@ -139,7 +144,7 @@ chronological reads of the append-only tables.
   - Verifies `X-Telegram-Bot-Api-Secret-Token` header
   - Verifies message is from the authorised `TELEGRAM_USER_ID`
   - Extracts text from the message
-  - Calls the same capture logic as `POST /capture/text`
+  - Passes the text to the Phase 4 capture logic
   - Returns 200 to Telegram immediately
 - Webhook registered with Telegram (requires a public URL — use ngrok locally)
 - `inbox_items` row created with `review_status = pending` and `item_type = unknown`;
@@ -164,7 +169,7 @@ chronological reads of the append-only tables.
 
 ---
 
-## Phase 5 — Dashboard inbox
+## Phase 5 — Dashboard inbox ✓ complete
 
 **Goal:** The dashboard shows a list of pending inbox items.
 
@@ -184,16 +189,18 @@ chronological reads of the append-only tables.
 **Definition of done:**
 - A Telegram message sent in Phase 4 is visible in the dashboard inbox
 - The end-to-end loop works: Telegram → `capture_events` → `inbox_items` → dashboard
-- This completes the **first end-to-end milestone**
+- This completes the capture-to-dashboard display loop. Phase 6 classification completes
+  the **first end-to-end milestone**.
 
 ---
 
-## Phase 6 — AI classification
+## Phase 6 — AI classification ✓ complete
 
-**Goal:** Claude classifies each capture and populates `structured_json` on the inbox item.
+**Goal:** OpenAI (`gpt-4o-mini`) classifies each capture and populates `structured_json`
+on the inbox item.
 
 **What gets built:**
-- `services/api/lib/classifier.py` — sends raw text to Claude, returns an item type
+- `services/api/app/services/classifier.py` — sends raw text to OpenAI, returns an item type
   and extracted fields as structured JSON
 - Classification is called immediately when a capture is received (after storing the
   `capture_event` but before returning the Telegram confirmation)
@@ -219,7 +226,7 @@ chronological reads of the append-only tables.
 
 ---
 
-## Phase 7 — Review actions
+## Phase 7 — Review actions ✓ complete
 
 **Goal:** The user can confirm or reject an inbox item from the dashboard.
 
@@ -250,7 +257,7 @@ chronological reads of the append-only tables.
 
 ---
 
-## Phase 8 — Tasks module
+## Phase 8 — Tasks module ✓ complete
 
 **Goal:** Confirmed tasks have a dedicated view and basic management.
 
@@ -259,10 +266,10 @@ chronological reads of the append-only tables.
   confirming a pending task-type inbox_item validates its data, creates exactly one linked
   `tasks` row, marks the inbox_item confirmed, and records `reviewed_at` in one atomic
   transaction. A unique `inbox_item_id` prevents duplicate task records.
-- `tasks` table migration
-- Dashboard `/tasks` page: list of open tasks, grouped by urgency
-- `GET /tasks?status=open`, `PATCH /tasks/:id` (mark complete), `DELETE /tasks/:id`
-- Basic task display: title, urgency, due date, created at
+- `tasks` table migration (`supabase/migrations/0002_tasks.sql`) + `confirm_task_item` RPC
+- Dashboard `/tasks` page: open tasks grouped by urgency, completed tasks in a separate section
+- `GET /tasks`, `PATCH /tasks/{id}/complete` (mark complete)
+- Basic task display: title, urgency, due date, notes, created at
 
 **What must NOT be built yet:**
 - Task editing from tasks view (edit happens in the inbox before confirmation)
@@ -280,30 +287,41 @@ chronological reads of the append-only tables.
 
 ---
 
-## Phase 9 — Finance module
+## Phase 9 — Finance module ✓ complete
 
 **Goal:** Confirmed expenses appear in a finance view.
 
 **What gets built:**
-- `money_events` table migration
-- Dashboard `/finance` page: list of recent expenses
-- `GET /money_events`, basic total by category
-- Expense display: amount, currency, merchant, category, date
+- `money_events` table migration (`supabase/migrations/0003_money_events.sql`) +
+  `confirm_finance_item` atomic RPC (mirrors the Phase 8 task pattern)
+- Dashboard `/finance` page: recent expenses + totals grouped by currency and category
+- `GET /money_events` (read-only; returns items + `totals_by_currency`)
+- Expense display: amount, currency, merchant, category, occurred text, notes, date
+
+**Income decision:** income tracking is out of scope. Finance **expense** items confirm
+atomically into `money_events`; finance **income** items confirm status-only (Phase 7 path,
+no domain record) and are not backfilled when income support later lands. The schema permits
+`direction in (expense, income)` but Phase 9 only ever creates expense rows.
 
 **What must NOT be built yet:**
-- Income tracking
+- Income tracking / UI
 - Net worth calculation
 - Google Sheets integration
 - Charts or aggregations beyond simple totals
+- Finance editing or deletion after confirmation
 
 **Definition of done:**
-- A finance item confirmed after the Phase 9 finance module exists appears in the finance view
-- Expenses are grouped or sorted by date
-- Basic total by category is shown
+- A finance expense confirmed after the Phase 9 module exists appears in the finance view
+- Expenses are ordered by `created_at`; totals shown per currency, broken down by category
+- Different currencies are never summed together
 
 ---
 
-## Phase 10 — Voice transcription
+## Phase 10 — Voice transcription ✓ complete
+
+**Manual verification passed:** An English voice note created one `telegram_voice` capture with
+`raw_text=null`, a populated transcript, `processing_status="classified"`, one linked inbox
+item, and separate transcriber / classifier audit rows. Duplicate replay created no new rows.
 
 **Goal:** Telegram voice notes are transcribed and processed through the same pipeline.
 
@@ -315,7 +333,8 @@ chronological reads of the append-only tables.
 - `capture_events.audio_file_id` populated with the stored audio-file reference
 
 **Note on audio format:** Telegram voice notes are OGG format. Pass the correct MIME
-type (`audio/ogg`) to Whisper.
+type (`audio/ogg`) to Whisper. Transcription is currently pinned to English (`language="en"`)
+to prevent incorrect automatic language detection.
 
 **What must NOT be built yet:**
 - Audio playback in the dashboard

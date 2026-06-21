@@ -16,7 +16,7 @@ This milestone proves the core pipeline exists and works. Nothing more.
 Telegram message
   → FastAPI webhook receives it
   → capture_event written to Supabase
-  → Claude classifies it
+  → OpenAI classifies it
   → inbox_item written with review_status = pending
   → dashboard shows it
 ```
@@ -25,7 +25,7 @@ Telegram message
 |---------|-------|
 | Telegram text message capture | 4 |
 | Dashboard review inbox | 5 |
-| AI classification (Claude) | 6 |
+| AI classification (OpenAI `gpt-4o-mini`) | 6 |
 
 The first milestone does **not** include confirmation, domain records, or any module
 views. Once this loop works, every subsequent feature is built on top of it.
@@ -44,7 +44,7 @@ loop works end-to-end.
 |---------|-------|
 | Telegram text message capture | 4 |
 | Dashboard review inbox | 5 |
-| AI classification (Claude) | 6 |
+| AI classification (OpenAI `gpt-4o-mini`) | 6 |
 | Confirm / reject inbox items | 7 |
 | Tasks module | 8 |
 
