@@ -1,15 +1,15 @@
 # services/api — Backend API
 
-**Status: Phase 11 — food logs module ✓ complete.**
+**Status: Phase 12 — calendar intents module ✓ complete.**
 
-Confirming a **food** inbox item calls the `confirm_food_item` RPC, atomically creating one
-linked `food_logs` row and marking the item confirmed. `GET /food_logs?date=today` returns
-today's confirmed meals using a `USER_TIMEZONE`-aware UTC window on `created_at`. Only
-`date=today` or no date parameter is accepted; unsupported values return 422.
+Confirming a **calendar** inbox item calls the `confirm_calendar_item` RPC, atomically creating
+one linked `calendar_intents` row and marking the item confirmed in a single transaction.
+`GET /calendar_intents` returns all confirmed calendar intents ordered by `created_at DESC`.
+`proposed_datetime` is stored as verbatim TEXT (not parsed). Migration `0007` adds the table.
 
-Phase 10 (✓ complete): Telegram voice notes are captured and transcribed via OpenAI Whisper.
-Confirming a **task** calls `confirm_task_item`; confirming a finance **expense** calls
-`confirm_finance_item`. Migrations `0001`–`0006` are applied. 211 tests pass (all mocked).
+Phase 11 (✓ complete): food logs module — `confirm_food_item` RPC + `GET /food_logs?date=today`
+with `USER_TIMEZONE`-aware UTC boundaries. Phase 10 (✓ complete): voice transcription.
+Migrations `0001`–`0007` applied. 248 tests pass (all mocked).
 
 ## Planned stack
 - Python 3.11+
@@ -51,6 +51,7 @@ app/
     tasks.py         — GET /tasks, PATCH /tasks/{id}/complete (tasks module)
     finance.py       — GET /money_events (finance module, read-only)
     food.py          — GET /food_logs (food module, read-only, ?date=today filter)
+    calendar.py      — GET /calendar_intents (calendar module, read-only)
     telegram.py      — POST /telegram/webhook (Telegram capture)
 tests/
   test_health.py             — /health endpoint tests
@@ -59,9 +60,11 @@ tests/
   test_inbox.py              — /inbox read tests (mocked Supabase)
   test_classifier.py         — classifier + schema validation tests
   test_classify_endpoint.py  — reclassify endpoint tests
-  test_review.py             — confirm / reject / edit + task & finance confirm tests
+  test_review.py             — confirm / reject / edit + task, finance, food & calendar confirm tests
   test_tasks.py              — tasks API tests (mocked Supabase)
   test_finance.py            — finance API tests (mocked Supabase)
+  test_food.py               — food logs API tests (mocked Supabase)
+  test_calendar_intents.py   — calendar intents API tests (mocked Supabase)
   test_telegram_webhook.py   — Telegram text webhook tests (mocked Supabase + httpx)
   test_telegram_voice.py     — Telegram voice transcription tests (Phase 10)
 ```
@@ -101,6 +104,7 @@ It must never appear in `apps/web/` env vars, browser bundles, or client respons
 | `PATCH` | `/tasks/{id}/complete` | `DEV_ADMIN_TOKEN` | Marks a task `completed` and sets `completed_at`. Idempotent. 404 if missing. No task editing. |
 | `GET` | `/money_events` | `DEV_ADMIN_TOKEN` | Read-only list of confirmed expenses, newest first, with `totals_by_currency` (grouped by currency then category; currencies never summed together). |
 | `GET` | `/food_logs` | `DEV_ADMIN_TOKEN` | Read-only list of confirmed food logs, newest first. `?date=today` filters by the user's local calendar day (based on `USER_TIMEZONE`), using `created_at` UTC boundaries — not `logged_at`. Only `date=today` or no param accepted; other values return 422. |
+| `GET` | `/calendar_intents` | `DEV_ADMIN_TOKEN` | Read-only list of all confirmed calendar intents, ordered by `created_at DESC`. `proposed_datetime` is verbatim text — not parsed. No date filter. |
 | `POST` | `/telegram/webhook` | `TELEGRAM_WEBHOOK_SECRET` header | Telegram text and voice capture. Text → classify directly. Voice → download OGG → Whisper → classify. Non-text/voice updates silently ignored. |
 
 `/telegram/webhook` uses its own secret (`X-Telegram-Bot-Api-Secret-Token` header), **not**
@@ -172,7 +176,7 @@ cd services/api
 # .venv/bin/pytest            # macOS/Linux
 ```
 
-Expected: `211 passed` — no real Supabase, OpenAI, or Telegram calls.
+Expected: `248 passed` — no real Supabase, OpenAI, or Telegram calls.
 
 ## Local curl example — Telegram-like payload
 
@@ -228,4 +232,5 @@ Expected response:
 - Phase 8: Tasks module (MVP), `supabase/migrations/0002_tasks.sql` (`tasks` table + `confirm_task_item` atomic RPC), `app/routes/tasks.py` (`GET /tasks`, `PATCH /tasks/{id}/complete`), task branch in `confirm`. First atomic confirm-plus-domain-record; idempotent via UNIQUE `inbox_item_id`.
 - Phase 9: Finance module, `supabase/migrations/0003_money_events.sql` (`money_events` table + `confirm_finance_item` atomic RPC), `app/routes/finance.py` (`GET /money_events` with currency/category totals), finance-expense branch in `confirm`. Expense-only; income confirms status-only. Currencies never summed together. ✓ complete.
 - Phase 10: Voice transcription ✓ complete, `supabase/migrations/0004_capture_transcription_status.sql` (widens `processing_status` CHECK), `supabase/migrations/0005_capture_unique_source.sql` (UNIQUE on capture_events + inbox_items), `app/services/transcriber.py` (Whisper-1 service, English pinned), `telegram.py` extended with `TelegramVoice` model, `_transcribe_and_update`, and `_capture_voice` path. 25 MB audio limit enforced pre- and post-download. Two `agent_runs` rows on happy path (transcriber + text_classifier). All inbox INSERTs wrapped with conflict recovery so concurrent retries never produce duplicate inbox rows. Manual E2E passed.
-- Phase 11: Food logs module ✓ complete, `supabase/migrations/0006_food_logs.sql` (`food_logs` table + `confirm_food_item` atomic RPC), `app/routes/food.py` (`GET /food_logs` with `?date=today` filtering via `USER_TIMEZONE`-aware UTC boundaries), food branch in `confirm` (`review.py`). `logged_at` stored as verbatim TEXT; date filtering uses `created_at`. `tzdata` added to requirements for cross-platform timezone support. 211 tests pass.
+- Phase 11: Food logs module ✓ complete, `supabase/migrations/0006_food_logs.sql` (`food_logs` table + `confirm_food_item` atomic RPC), `app/routes/food.py` (`GET /food_logs` with `?date=today` filtering via `USER_TIMEZONE`-aware UTC boundaries), food branch in `confirm` (`review.py`). `logged_at` stored as verbatim TEXT; date filtering uses `created_at`. `tzdata` added to requirements for cross-platform timezone support. 235 tests pass.
+- Phase 12: Calendar intents module ✓ complete, `supabase/migrations/0007_calendar_intents.sql` (`calendar_intents` table + `confirm_calendar_item` atomic RPC), `app/routes/calendar.py` (`GET /calendar_intents`), calendar branch in `confirm` (`review.py`). `proposed_datetime` stored as verbatim TEXT; no date filter; ordered by `created_at DESC`. No `status` column, no `user_id`. 248 tests pass.

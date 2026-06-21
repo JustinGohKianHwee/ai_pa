@@ -69,22 +69,21 @@ that reads or mutates personal data. The webhook validates its own secret.
 
 ## Current status
 
-**Phase 11 — food logs module ✓ complete.**
+**Phase 12 — calendar intents module ✓ complete.**
 
-Confirming a **food** inbox item calls the `confirm_food_item` RPC, atomically creating one
-linked `food_logs` row and marking the item confirmed in a single transaction. `GET /food_logs`
-returns all confirmed food logs; `?date=today` filters to the user's local calendar day using
-`USER_TIMEZONE`-aware UTC midnight boundaries on `created_at` (not `logged_at`, which is
-verbatim display text only). Unsupported `date=` values return 422. The `/food` dashboard page
-shows today's meals. 211 backend tests pass.
+Confirming a **calendar** inbox item calls the `confirm_calendar_item` RPC, atomically creating
+one linked `calendar_intents` row and marking the item confirmed in a single transaction.
+`GET /calendar_intents` returns all confirmed intents ordered by `created_at DESC`.
+`proposed_datetime` is stored verbatim as TEXT (no parsing). The `/calendar` dashboard page
+shows confirmed intentions. 248 backend tests pass.
 
-Phase 10 (voice ✓ complete): Telegram voice notes captured and transcribed via Whisper.
-Migration 0005 adds uniqueness constraints to prevent duplicate rows under concurrent retries.
-Migrations `0001`–`0006` are applied to the project.
+Phase 11 (✓ complete): food logs — `confirm_food_item` RPC + `GET /food_logs?date=today`.
+Phase 10 (✓ complete): voice transcription via Whisper.
+Migrations `0001`–`0007` are applied to the project.
 
 Milestones: **Phase 6** — classification end-to-end. **Phase 7** — review layer. **Phase 8** —
 MVP (tasks + atomic confirm). **Phase 9** — finance expenses. **Phase 10** — voice transcription.
-**Phase 11** — food logs.
+**Phase 11** — food logs. **Phase 12** — calendar intents.
 
 ---
 
@@ -140,9 +139,10 @@ cd services/api
 # .venv/bin/pytest            # macOS/Linux
 ```
 
-Expected output: `211 passed` covering health, Supabase client, inbox read/review/edit,
-task + finance + food confirmation, the tasks, finance, and food APIs, AI classification,
-Telegram webhook text capture, and voice transcription. All external calls are mocked.
+Expected output: `248 passed` covering health, Supabase client, inbox read/review/edit,
+task + finance + food + calendar confirmation, the tasks, finance, food, and calendar APIs,
+AI classification, Telegram webhook text capture, and voice transcription. All external calls
+are mocked.
 
 ---
 
@@ -156,7 +156,9 @@ The schema lives in `supabase/migrations/`. `0001_capture_pipeline.sql` creates
 to include `transcription_failed`. `0005_capture_unique_source.sql` (Phase 10) adds
 `UNIQUE (source, source_message_id)` on `capture_events` and `UNIQUE (capture_event_id)` on
 `inbox_items`. `0006_food_logs.sql` (Phase 11) adds the `food_logs` table and the
-`confirm_food_item` atomic-confirmation RPC. Apply migrations in order.
+`confirm_food_item` atomic-confirmation RPC. `0007_calendar_intents.sql` (Phase 12) adds the
+`calendar_intents` table and the `confirm_calendar_item` atomic-confirmation RPC. Apply
+migrations in order.
 
 ### Apply it (no install required)
 
@@ -179,7 +181,7 @@ supabase link --project-ref <your-project-ref>
 supabase db push        # applies supabase/migrations/*.sql to the linked project
 ```
 
-> Migrations `0001`–`0006` are applied to this project's Supabase database. New environments
+> Migrations `0001`–`0007` are applied to this project's Supabase database. New environments
 > must still apply every migration in order.
 
 ---

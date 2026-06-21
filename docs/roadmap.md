@@ -370,22 +370,28 @@ to prevent incorrect automatic language detection.
 
 ---
 
-## Phase 12 — Calendar intents module
+## Phase 12 — Calendar intents module ✓ complete
 
 **Goal:** Confirmed calendar intentions are stored and visible.
 
 **What gets built:**
-- `calendar_intents` table migration
-- Dashboard `/calendar` page: upcoming calendar intents
-- `GET /calendar_intents`
-- Basic display: title, proposed datetime, location
+- `supabase/migrations/0007_calendar_intents.sql` — `calendar_intents` table +
+  `confirm_calendar_item` atomic RPC (same 9-step pattern as tasks, finance, food)
+- `GET /calendar_intents` — all intents ordered by `created_at DESC` (no date filter)
+- Dashboard `/calendar` page: confirmed intentions (server component, force-dynamic)
+
+**Key decisions (Phase 12):**
+- `proposed_datetime` stored as TEXT — verbatim AI output, not parsed, display only
+- No `status` column (`draft`/`synced` deferred until calendar sync is introduced)
+- No `user_id` (single-user until Phase 15)
+- Display order: `created_at DESC`; page titled "Calendar Intents", not "Upcoming Events"
 
 **Note:** This is NOT live calendar sync. `calendar_intents` are records of intention.
 Syncing to Google Calendar / Apple Calendar is a later phase requiring OAuth and conflict
 detection.
 
 **Definition of done:**
-- "Dinner with Zoey next Friday 7pm at Jewel" → confirmed inbox item → calendar intent → visible in calendar view
+- "Dinner with Zoey next Friday 7pm at Jewel" → confirmed inbox item → calendar intent → visible in /calendar
 
 ---
 

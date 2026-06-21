@@ -237,25 +237,35 @@ or `notes` — the classifier does not extract these fields in Phase 11.
 
 ---
 
-### `calendar_intents` — Phase 12+
+### `calendar_intents` — Phase 12 (implemented, `supabase/migrations/0007_calendar_intents.sql`)
 
-Confirmed calendar intentions. These are NOT live calendar events yet — they are records
-of the user's intent to schedule something. Syncing to a real calendar is a future feature.
+Confirmed calendar intentions. Exactly one row per source `inbox_item` (UNIQUE `inbox_item_id`),
+written only by the `confirm_calendar_item` RPC in the same transaction that confirms the item.
+Immutable in Phase 12 (no edit/delete) — hence no `updated_at`. These are NOT live calendar
+events — calendar sync is deferred to a future phase requiring OAuth and conflict detection.
 
-**Key fields:**
-- `id`, `inbox_item_id` (FK), `user_id`
-- `title` — event description
-- `proposed_datetime` — when the user intends this to happen
-- `location` — optional
-- `notes`
-- `status` — `draft` (confirmed by user but not yet synced) / `synced` (future)
-- `created_at`
+**Columns (actual migration):**
+- `id` — UUID primary key (`gen_random_uuid()`)
+- `inbox_item_id` — required FK to `inbox_items`, **UNIQUE** (idempotency backstop)
+- `title` — event title as extracted by the AI, **not null**
+- `proposed_datetime` — **text**, nullable. The AI's free-text proposed time verbatim
+  (e.g. "next Friday 7pm"). **Not parsed.** Display only — ordering uses `created_at`.
+- `location` — optional location as extracted by the AI, nullable
+- `notes` — optional notes as extracted by the AI, nullable
+- `created_at` — not null, default `now()`
+
+**Key decisions (Phase 12):**
+- No `user_id` (single-user until Phase 15)
+- No `status` column (`draft`/`synced` deferred until calendar sync exists)
+- `proposed_datetime` stored as TEXT — verbatim AI output, same pattern as `occurred_at`
+  and `logged_at`
+- Display order: `created_at DESC` (confirmation time); no meaningful sort by event time
+  without a parsed datetime
 
 **Why `calendar_intents` and not direct calendar events:**
-Creating a real calendar event is a sensitive, irreversible action that affects your
-external schedule. Phase 12 adds the ability to capture and review calendar intentions.
-Actual calendar sync is deferred further — it requires OAuth, conflict detection, and a
-more deliberate confirmation UX.
+Creating a real calendar event is a sensitive, irreversible action. Phase 12 adds the
+ability to capture and review calendar intentions. Actual calendar sync requires OAuth,
+conflict detection, and a more deliberate confirmation UX — deferred to a later phase.
 
 ---
 

@@ -1366,3 +1366,259 @@ def test_confirm_finance_valid_positive_amount_succeeds(monkeypatch):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
     assert response.status_code == 200
     assert response.json()["money_event"]["amount"] == 12.0
+
+
+# ===========================================================================
+# Phase 12 — Calendar confirm
+# ===========================================================================
+
+PENDING_CALENDAR_ROW = {
+    "id": INBOX_ID,
+    "item_type": "calendar",
+    "review_status": "pending",
+    "title": "Dinner with Zoey",
+    "body": "dinner with zoey next friday 7pm at jewel",
+    "confidence": 0.93,
+    "reviewed_at": None,
+    "updated_at": "2024-01-01T12:00:00+00:00",
+    "structured_json": {
+        "title": "Dinner with Zoey",
+        "proposed_datetime": "next Friday 7pm",
+        "location": "Jewel",
+        "notes": None,
+    },
+}
+
+CONFIRMED_CALENDAR_ITEM = {
+    **PENDING_CALENDAR_ROW,
+    "review_status": "confirmed",
+    "reviewed_at": "2024-01-01T12:05:00+00:00",
+}
+
+CALENDAR_INTENT_ROW = {
+    "id": "calendar-intent-uuid-1",
+    "inbox_item_id": INBOX_ID,
+    "title": "Dinner with Zoey",
+    "proposed_datetime": "next Friday 7pm",
+    "location": "Jewel",
+    "notes": None,
+    "created_at": "2024-01-01T12:05:00+00:00",
+}
+
+CALENDAR_RPC_RESULT = {
+    "inbox_item": CONFIRMED_CALENDAR_ITEM,
+    "calendar_intent": CALENDAR_INTENT_ROW,
+}
+
+
+def _make_calendar_confirm_mock(
+    inbox_results: list,
+    calendar_intent_results: list | None = None,
+    rpc_result=None,
+    rpc_error: bool = False,
+) -> MagicMock:
+    """
+    Routes .table('inbox_items') and .table('calendar_intents') to separate sub-mocks
+    and stubs .rpc(...).execute(), mirroring _make_food_confirm_mock.
+    """
+    client_mock = MagicMock()
+
+    inbox_tbl = MagicMock()
+    inbox_tbl.select.return_value.eq.return_value.execute.side_effect = [
+        MagicMock(data=d) for d in inbox_results
+    ]
+
+    calendar_tbl = MagicMock()
+    calendar_tbl.select.return_value.eq.return_value.execute.side_effect = [
+        MagicMock(data=d) for d in (calendar_intent_results or [])
+    ]
+
+    client_mock.table.side_effect = (
+        lambda name: calendar_tbl if name == "calendar_intents" else inbox_tbl
+    )
+
+    if rpc_error:
+        client_mock.rpc.return_value.execute.side_effect = Exception("rpc failed")
+    else:
+        client_mock.rpc.return_value.execute.return_value = MagicMock(data=rpc_result)
+
+    return client_mock
+
+
+# ---------------------------------------------------------------------------
+# 1. Happy path
+# ---------------------------------------------------------------------------
+
+
+def test_confirm_pending_calendar_creates_intent_and_confirms(monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_calendar_confirm_mock(
+        inbox_results=[[PENDING_CALENDAR_ROW]], rpc_result=CALENDAR_RPC_RESULT
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["calendar_intent"]["id"] == "calendar-intent-uuid-1"
+    assert body["inbox_item"]["review_status"] == "confirmed"
+
+
+def test_confirm_calendar_reviewed_at_not_none(monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_calendar_confirm_mock(
+        inbox_results=[[PENDING_CALENDAR_ROW]], rpc_result=CALENDAR_RPC_RESULT
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.json()["inbox_item"]["reviewed_at"] is not None
+
+
+def test_confirm_calendar_intent_inbox_item_id_matches(monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_calendar_confirm_mock(
+        inbox_results=[[PENDING_CALENDAR_ROW]], rpc_result=CALENDAR_RPC_RESULT
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.json()["calendar_intent"]["inbox_item_id"] == INBOX_ID
+
+
+# ---------------------------------------------------------------------------
+# 2. Idempotency
+# ---------------------------------------------------------------------------
+
+
+def test_confirm_calendar_already_confirmed_with_intent_returns_200(monkeypatch):
+    """If already confirmed and a calendar_intent exists, return 200 without calling RPC."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_calendar_confirm_mock(
+        inbox_results=[[CONFIRMED_CALENDAR_ITEM]],
+        calendar_intent_results=[[CALENDAR_INTENT_ROW]],
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_calendar_already_confirmed_without_intent_returns_409(monkeypatch):
+    """If confirmed but no calendar_intent, backfill is not supported → 409."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_calendar_confirm_mock(
+        inbox_results=[[CONFIRMED_CALENDAR_ITEM]],
+        calendar_intent_results=[[]],
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# 3. Recheck paths after RPC error
+# ---------------------------------------------------------------------------
+
+
+def test_confirm_calendar_rpc_error_then_confirmed_returns_200(monkeypatch):
+    """RPC raises, re-read shows confirmed + intent already exists → 200 (concurrent win)."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_calendar_confirm_mock(
+        inbox_results=[[PENDING_CALENDAR_ROW], [CONFIRMED_CALENDAR_ITEM]],
+        calendar_intent_results=[[CALENDAR_INTENT_ROW]],
+        rpc_error=True,
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+
+
+def test_confirm_calendar_rpc_error_still_pending_returns_503(monkeypatch):
+    """RPC raises, re-read shows still pending, same updated_at, no intent → 503."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_calendar_confirm_mock(
+        inbox_results=[[PENDING_CALENDAR_ROW], [PENDING_CALENDAR_ROW]],
+        calendar_intent_results=[[]],
+        rpc_error=True,
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 503
+    assert "Calendar confirmation database operation failed" in response.json()["detail"]
+
+
+def test_confirm_calendar_rpc_error_updated_at_changed_returns_409(monkeypatch):
+    """RPC raises, re-read shows updated_at changed → concurrent modification → 409."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    changed = {**PENDING_CALENDAR_ROW, "updated_at": "2024-01-01T13:30:00+00:00"}
+    mock = _make_calendar_confirm_mock(
+        inbox_results=[[PENDING_CALENDAR_ROW], [changed]],
+        calendar_intent_results=[[]],
+        rpc_error=True,
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# 4. Validation
+# ---------------------------------------------------------------------------
+
+
+def test_confirm_calendar_missing_title_returns_400(monkeypatch):
+    """structured_json without 'title' → 400, RPC not called."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    bad = {**PENDING_CALENDAR_ROW, "structured_json": {"proposed_datetime": "Friday 7pm"}}
+    mock = _make_calendar_confirm_mock(inbox_results=[[bad]])
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_calendar_whitespace_title_returns_400(monkeypatch):
+    """Whitespace-only title → 400, RPC not called."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    whitespace = {**PENDING_CALENDAR_ROW, "structured_json": {"title": "   "}}
+    mock = _make_calendar_confirm_mock(inbox_results=[[whitespace]])
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 5. Pipeline invariants
+# ---------------------------------------------------------------------------
+
+
+def test_confirm_calendar_does_not_python_insert(monkeypatch):
+    """Python must not call .table('calendar_intents').insert() — only the RPC may write."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_calendar_confirm_mock(
+        inbox_results=[[PENDING_CALENDAR_ROW]], rpc_result=CALENDAR_RPC_RESULT
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    calendar_tbl = mock.table("calendar_intents")
+    calendar_tbl.insert.assert_not_called()
+
+
+def test_confirm_calendar_rpc_function_name(monkeypatch):
+    """The RPC must be called as 'confirm_calendar_item'."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_calendar_confirm_mock(
+        inbox_results=[[PENDING_CALENDAR_ROW]], rpc_result=CALENDAR_RPC_RESULT
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert mock.rpc.call_args.args[0] == "confirm_calendar_item"
+
+
+def test_confirm_calendar_needs_manual_classification_returns_409(monkeypatch):
+    """Items with review_status='needs_manual_classification' cannot be confirmed → 409."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    needs_manual = {**PENDING_CALENDAR_ROW, "review_status": "needs_manual_classification"}
+    mock = _make_calendar_confirm_mock(inbox_results=[[needs_manual]])
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 409

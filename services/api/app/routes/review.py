@@ -7,6 +7,7 @@ from pydantic import BaseModel, ValidationError as PydanticValidationError
 from supabase import Client
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
+from app.routes.calendar import CalendarIntentResponse
 from app.routes.finance import MoneyEventResponse
 from app.routes.food import FoodLogResponse
 from app.routes.tasks import TaskResponse
@@ -70,6 +71,12 @@ class ConfirmFoodResponse(BaseModel):
     """Returned when a food-type item is confirmed: the inbox item plus its new food_log."""
     inbox_item: ReviewedItemResponse
     food_log: FoodLogResponse
+
+
+class ConfirmCalendarResponse(BaseModel):
+    """Returned when a calendar-type item is confirmed: the inbox item plus its calendar_intent."""
+    inbox_item: ReviewedItemResponse
+    calendar_intent: CalendarIntentResponse
 
 
 class EditInboxItemRequest(BaseModel):
@@ -390,6 +397,104 @@ def _confirm_food(client: Client, inbox_id: str, item: dict) -> ConfirmFoodRespo
     )
 
 
+def _fetch_calendar_intent(client: Client, inbox_id: str) -> Optional[dict]:
+    res = client.table("calendar_intents").select("*").eq("inbox_item_id", inbox_id).execute()
+    return res.data[0] if res.data else None
+
+
+def _recheck_calendar_confirm(
+    client: Client, inbox_id: str, original: dict
+) -> ConfirmCalendarResponse:
+    """
+    Calendar counterpart of _recheck_food_confirm. After a confirm_calendar_item RPC error
+    (or empty result), re-read state and compare to the validated snapshot:
+      1. confirmed + calendar_intent exists → idempotent success (200)
+      2. state or updated_at changed        → concurrency conflict (409)
+      3. unchanged pending, no intent       → the RPC failed without committing (503)
+    """
+    try:
+        item = _fetch_item(client, inbox_id)
+        intent = _fetch_calendar_intent(client, inbox_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    if item is not None and intent is not None and item["review_status"] == "confirmed":
+        return ConfirmCalendarResponse(
+            inbox_item=ReviewedItemResponse(**item),
+            calendar_intent=CalendarIntentResponse(**intent),
+        )
+
+    if (
+        item is None
+        or item["review_status"] != original["review_status"]
+        or item["updated_at"] != original["updated_at"]
+    ):
+        raise HTTPException(
+            status_code=409, detail="Item was modified concurrently; confirm failed"
+        )
+
+    raise HTTPException(
+        status_code=503, detail="Calendar confirmation database operation failed"
+    )
+
+
+def _confirm_calendar(client: Client, inbox_id: str, item: dict) -> ConfirmCalendarResponse:
+    """
+    Phase 12 atomic confirmation for calendar-type items. Delegates the calendar_intent
+    insert + inbox confirmation to the confirm_calendar_item RPC so both happen in one
+    transaction. Never performs a separate insert + update from Python.
+    """
+    # Idempotency: already confirmed.
+    if item["review_status"] == "confirmed":
+        try:
+            existing = _fetch_calendar_intent(client, inbox_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database query failed") from exc
+        if existing is not None:
+            return ConfirmCalendarResponse(
+                inbox_item=ReviewedItemResponse(**item),
+                calendar_intent=CalendarIntentResponse(**existing),
+            )
+        # Confirmed before the calendar module existed → do NOT backfill.
+        raise HTTPException(
+            status_code=409,
+            detail="Item was confirmed before the calendar module existed; backfill is not supported.",
+        )
+
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot confirm item with review_status='{item['review_status']}'",
+        )
+
+    err, normalized = _validate_structured_json("calendar", item["structured_json"])
+    if err:
+        raise HTTPException(status_code=400, detail=f"structured_json invalid: {err}")
+
+    if not (normalized.get("title") or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="A calendar intent requires a non-empty title before it can be confirmed.",
+        )
+
+    try:
+        result = client.rpc(
+            "confirm_calendar_item",
+            {"p_inbox_id": inbox_id, "p_expected_updated_at": item["updated_at"]},
+        ).execute()
+    except Exception:
+        return _recheck_calendar_confirm(client, inbox_id, item)
+
+    data = result.data
+    if not data:
+        return _recheck_calendar_confirm(client, inbox_id, item)
+
+    return ConfirmCalendarResponse(
+        inbox_item=ReviewedItemResponse(**data["inbox_item"]),
+        calendar_intent=CalendarIntentResponse(**data["calendar_intent"]),
+    )
+
+
 @router.patch(
     "/{inbox_id}/confirm",
     dependencies=[Depends(require_dev_admin_token)],
@@ -397,7 +502,7 @@ def _confirm_food(client: Client, inbox_id: str, item: dict) -> ConfirmFoodRespo
 )
 def confirm_inbox_item(
     inbox_id: str,
-) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse:
+) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse:
     try:
         client = get_supabase_client()
     except SupabaseConfigurationError as exc:
@@ -425,6 +530,10 @@ def confirm_inbox_item(
     # Phase 11: food items confirm atomically and create a food_log.
     if item["item_type"] == "food":
         return _confirm_food(client, inbox_id, item)
+
+    # Phase 12: calendar items confirm atomically and create a calendar_intent.
+    if item["item_type"] == "calendar":
+        return _confirm_calendar(client, inbox_id, item)
 
     # Non-module items keep the Phase 7 status-only confirmation (no domain record).
     if item["review_status"] == "confirmed":
