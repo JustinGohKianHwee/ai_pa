@@ -1,3 +1,4 @@
+import math
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -7,6 +8,7 @@ from supabase import Client
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
 from app.routes.finance import MoneyEventResponse
+from app.routes.food import FoodLogResponse
 from app.routes.tasks import TaskResponse
 from app.security import require_dev_admin_token
 from app.services.classifier import _ITEM_TYPE_SCHEMAS
@@ -62,6 +64,12 @@ class ConfirmFinanceResponse(BaseModel):
     """Returned when a finance expense item is confirmed: the inbox item plus its money_event."""
     inbox_item: ReviewedItemResponse
     money_event: MoneyEventResponse
+
+
+class ConfirmFoodResponse(BaseModel):
+    """Returned when a food-type item is confirmed: the inbox item plus its new food_log."""
+    inbox_item: ReviewedItemResponse
+    food_log: FoodLogResponse
 
 
 class EditInboxItemRequest(BaseModel):
@@ -259,9 +267,10 @@ def _confirm_finance(client: Client, inbox_id: str, item: dict) -> ConfirmFinanc
     if err:
         raise HTTPException(status_code=400, detail=f"structured_json invalid: {err}")
 
-    if float(normalized.get("amount", 0)) <= 0:
+    _amount = float(normalized.get("amount", 0))
+    if not math.isfinite(_amount) or _amount <= 0:
         raise HTTPException(
-            status_code=400, detail="A finance amount must be greater than zero."
+            status_code=400, detail="A finance amount must be a finite number greater than zero."
         )
 
     try:
@@ -283,6 +292,104 @@ def _confirm_finance(client: Client, inbox_id: str, item: dict) -> ConfirmFinanc
     )
 
 
+def _fetch_food_log(client: Client, inbox_id: str) -> Optional[dict]:
+    res = client.table("food_logs").select("*").eq("inbox_item_id", inbox_id).execute()
+    return res.data[0] if res.data else None
+
+
+def _recheck_food_confirm(
+    client: Client, inbox_id: str, original: dict
+) -> ConfirmFoodResponse:
+    """
+    Food counterpart of _recheck_finance_confirm. After a confirm_food_item RPC error
+    (or empty result), re-read state and compare to the validated snapshot:
+      1. confirmed + food_log exists → idempotent success (200)
+      2. state or updated_at changed  → concurrency conflict (409)
+      3. unchanged pending, no log    → the RPC failed without committing (503)
+    """
+    try:
+        item = _fetch_item(client, inbox_id)
+        food_log = _fetch_food_log(client, inbox_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    if item is not None and food_log is not None and item["review_status"] == "confirmed":
+        return ConfirmFoodResponse(
+            inbox_item=ReviewedItemResponse(**item),
+            food_log=FoodLogResponse(**food_log),
+        )
+
+    if (
+        item is None
+        or item["review_status"] != original["review_status"]
+        or item["updated_at"] != original["updated_at"]
+    ):
+        raise HTTPException(
+            status_code=409, detail="Item was modified concurrently; confirm failed"
+        )
+
+    raise HTTPException(
+        status_code=503, detail="Food confirmation database operation failed"
+    )
+
+
+def _confirm_food(client: Client, inbox_id: str, item: dict) -> ConfirmFoodResponse:
+    """
+    Phase 11 atomic confirmation for food-type items. Delegates the food_log insert +
+    inbox confirmation to the confirm_food_item RPC so both happen in one transaction.
+    Never performs a separate insert + update from Python.
+    """
+    # Idempotency: already confirmed.
+    if item["review_status"] == "confirmed":
+        try:
+            existing = _fetch_food_log(client, inbox_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database query failed") from exc
+        if existing is not None:
+            return ConfirmFoodResponse(
+                inbox_item=ReviewedItemResponse(**item),
+                food_log=FoodLogResponse(**existing),
+            )
+        # Confirmed before the food module existed → do NOT backfill.
+        raise HTTPException(
+            status_code=409,
+            detail="Item was confirmed before the food module existed; backfill is not supported.",
+        )
+
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot confirm item with review_status='{item['review_status']}'",
+        )
+
+    err, normalized = _validate_structured_json("food", item["structured_json"])
+    if err:
+        raise HTTPException(status_code=400, detail=f"structured_json invalid: {err}")
+
+    if not (normalized.get("description") or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="A food log requires a non-empty description before it can be confirmed.",
+        )
+
+    try:
+        result = client.rpc(
+            "confirm_food_item",
+            {"p_inbox_id": inbox_id, "p_expected_updated_at": item["updated_at"]},
+        ).execute()
+    except Exception:
+        return _recheck_food_confirm(client, inbox_id, item)
+
+    data = result.data
+    if not data:
+        return _recheck_food_confirm(client, inbox_id, item)
+
+    return ConfirmFoodResponse(
+        inbox_item=ReviewedItemResponse(**data["inbox_item"]),
+        food_log=FoodLogResponse(**data["food_log"]),
+    )
+
+
 @router.patch(
     "/{inbox_id}/confirm",
     dependencies=[Depends(require_dev_admin_token)],
@@ -290,7 +397,7 @@ def _confirm_finance(client: Client, inbox_id: str, item: dict) -> ConfirmFinanc
 )
 def confirm_inbox_item(
     inbox_id: str,
-) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse:
+) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse:
     try:
         client = get_supabase_client()
     except SupabaseConfigurationError as exc:
@@ -314,6 +421,10 @@ def confirm_inbox_item(
     # Finance income items fall through to the Phase 7 status-only path (no domain record).
     if item["item_type"] == "finance" and item["structured_json"].get("direction") == "expense":
         return _confirm_finance(client, inbox_id, item)
+
+    # Phase 11: food items confirm atomically and create a food_log.
+    if item["item_type"] == "food":
+        return _confirm_food(client, inbox_id, item)
 
     # Non-module items keep the Phase 7 status-only confirmation (no domain record).
     if item["review_status"] == "confirmed":

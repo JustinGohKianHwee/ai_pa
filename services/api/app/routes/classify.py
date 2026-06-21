@@ -50,9 +50,8 @@ async def reclassify_inbox_item(inbox_id: str) -> ClassifyResponse:
     try:
         row = (
             client.table("inbox_items")
-            .select("*, capture_events(id, raw_text)")
+            .select("*, capture_events(id, raw_text, transcript)")
             .eq("id", inbox_id)
-            .single()
             .execute()
         )
     except Exception as exc:
@@ -61,7 +60,7 @@ async def reclassify_inbox_item(inbox_id: str) -> ClassifyResponse:
     if not row.data:
         raise HTTPException(status_code=404, detail="Inbox item not found")
 
-    item = row.data
+    item = row.data[0]
 
     if item.get("review_status") in FINAL_STATUSES:
         raise HTTPException(
@@ -80,9 +79,9 @@ async def reclassify_inbox_item(inbox_id: str) -> ClassifyResponse:
             ),
         )
 
-    # Resolve the text to classify: prefer body on inbox_item, fall back to raw_text
+    # Resolve the text to classify: body → transcript → raw_text
     capture = item.get("capture_events") or {}
-    text = item.get("body") or capture.get("raw_text") or ""
+    text = item.get("body") or capture.get("transcript") or capture.get("raw_text") or ""
     if not text:
         raise HTTPException(status_code=400, detail="No text available to classify")
 
@@ -101,10 +100,12 @@ async def reclassify_inbox_item(inbox_id: str) -> ClassifyResponse:
             client.table("inbox_items")
             .select("id, item_type, review_status, title, body, structured_json, confidence")
             .eq("id", inbox_id)
-            .single()
             .execute()
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Failed to fetch updated item") from exc
 
-    return ClassifyResponse(**updated.data)
+    if not updated.data:
+        raise HTTPException(status_code=503, detail="Failed to fetch updated item")
+
+    return ClassifyResponse(**updated.data[0])

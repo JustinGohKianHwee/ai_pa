@@ -347,18 +347,26 @@ to prevent incorrect automatic language detection.
 
 ---
 
-## Phase 11 — Food logs module
+## Phase 11 — Food logs module ✓ complete
 
 **Goal:** Confirmed food entries have a dedicated view.
 
 **What gets built:**
-- `food_logs` table migration
-- Dashboard `/food` page: today's meals
-- `GET /food_logs?date=today`
-- Basic display: description, meal type, time, optional calorie estimate
+- `supabase/migrations/0006_food_logs.sql` — `food_logs` table + `confirm_food_item` atomic RPC
+- `GET /food_logs` — read-only list; `?date=today` filter uses `created_at` with
+  `USER_TIMEZONE`-aware midnight boundaries (not `logged_at`)
+- Dashboard `/food` page: today's meals (server component, force-dynamic)
+- `tzdata` added to requirements for cross-platform `zoneinfo` support
+
+**Key decisions (Phase 11):**
+- `logged_at` stored as TEXT — verbatim AI output, not parsed, not filterable
+- `?date=today` = user's local calendar day of confirmation (`created_at`), not meal time
+- No `user_id`, `estimated_calories`, `estimated_protein_g`, or `notes` (Phase 15 / future)
+- Invalid `date=` values return 422 (no silent fallback to all-records)
 
 **Definition of done:**
-- "Ate chicken rice for lunch" → confirmed inbox item → food log entry → visible in food view
+- "Ate chicken rice for lunch" → confirmed inbox item → food log entry → visible in /food
+- `GET /food_logs?date=yesterday` → 422
 
 ---
 

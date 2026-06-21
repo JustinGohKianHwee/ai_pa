@@ -206,19 +206,34 @@ currency, then category — amounts in different currencies are never summed.
 
 ---
 
-### `food_logs` — Phase 11+
+### `food_logs` — Phase 11 (implemented, `supabase/migrations/0006_food_logs.sql`)
 
-Confirmed food entries.
+Confirmed food records. Exactly one row per source `inbox_item` (UNIQUE `inbox_item_id`),
+written only by the `confirm_food_item` RPC in the same transaction that confirms the item.
+Immutable in Phase 11 (no edit/delete) — hence no `updated_at`.
 
-**Key fields:**
-- `id`, `inbox_item_id` (FK), `user_id`
-- `description` — what was eaten (free text, e.g. "chicken rice and kopi")
-- `meal_type` — `breakfast`, `lunch`, `dinner`, `snack`
-- `logged_at` — when the meal was eaten (user's local date)
-- `estimated_calories` — optional, can be filled by AI estimation later
-- `estimated_protein_g` — optional
-- `notes`
-- `created_at`
+**Columns (actual migration):**
+- `id` — UUID primary key (`gen_random_uuid()`)
+- `inbox_item_id` — required FK to `inbox_items`, **UNIQUE** (idempotency backstop)
+- `description` — what was eaten, **not null** (sourced from `FoodStructuredJson.description`)
+- `meal_type` — `breakfast` / `lunch` / `dinner` / `snack`, nullable, CHECK-constrained
+- `logged_at` — **text**, nullable. The AI's free-text date/time verbatim (e.g. "lunchtime",
+  "this morning"). **Not parsed.** Not used for date filtering — display only.
+- `created_at` — not null, default `now()`
+
+**"Today" filtering contract:**
+`GET /food_logs?date=today` returns logs whose `created_at` falls within the user's local
+calendar day. "Today" = the calendar day in which the item was *confirmed*, computed in the
+user's `USER_TIMEZONE` (IANA string, e.g. `"Asia/Singapore"`). Local midnight boundaries are
+computed at request time and converted to UTC:
+```
+created_at >= local_midnight_utc  AND  created_at < next_local_midnight_utc
+```
+A meal confirmed at 11:59 PM SGT appears in today's view. `logged_at` is not queryable in
+Phase 11 — it is a display field only.
+
+No `user_id` (single-user until Phase 15). No `estimated_calories`, `estimated_protein_g`,
+or `notes` — the classifier does not extract these fields in Phase 11.
 
 ---
 

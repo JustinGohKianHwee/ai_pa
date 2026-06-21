@@ -1068,3 +1068,301 @@ def test_confirm_task_path_unchanged_by_finance(monkeypatch):
     assert response.status_code == 200
     assert response.json()["task"]["id"] == "task-uuid-1"
     assert mock.rpc.call_args.args[0] == "confirm_task_item"
+
+
+# ===========================================================================
+# Phase 11 — food confirmation (atomic confirm + food_log via RPC)
+# ===========================================================================
+
+PENDING_FOOD_ROW = {
+    "id": INBOX_ID,
+    "item_type": "food",
+    "review_status": "pending",
+    "title": "Chicken rice for lunch",
+    "body": "ate chicken rice for lunch",
+    "confidence": 0.95,
+    "reviewed_at": None,
+    "updated_at": "2024-01-01T12:00:00+00:00",
+    "structured_json": {"description": "chicken rice", "meal_type": "lunch"},
+}
+
+CONFIRMED_FOOD_ITEM = {
+    **PENDING_FOOD_ROW,
+    "review_status": "confirmed",
+    "reviewed_at": "2024-01-01T12:05:00+00:00",
+}
+
+FOOD_LOG_ROW = {
+    "id": "food-log-uuid-1",
+    "inbox_item_id": INBOX_ID,
+    "description": "chicken rice",
+    "meal_type": "lunch",
+    "logged_at": None,
+    "created_at": "2024-01-01T12:05:00+00:00",
+}
+
+FOOD_RPC_RESULT = {"inbox_item": CONFIRMED_FOOD_ITEM, "food_log": FOOD_LOG_ROW}
+
+
+def _make_food_confirm_mock(
+    inbox_results: list,
+    food_log_results: list | None = None,
+    rpc_result=None,
+    rpc_error: bool = False,
+) -> MagicMock:
+    """
+    Routes .table('inbox_items') and .table('food_logs') to separate sub-mocks and
+    stubs .rpc(...).execute(), mirroring _make_finance_confirm_mock.
+    """
+    client_mock = MagicMock()
+
+    inbox_tbl = MagicMock()
+    inbox_tbl.select.return_value.eq.return_value.execute.side_effect = [
+        MagicMock(data=d) for d in inbox_results
+    ]
+
+    food_tbl = MagicMock()
+    food_tbl.select.return_value.eq.return_value.execute.side_effect = [
+        MagicMock(data=d) for d in (food_log_results or [])
+    ]
+
+    client_mock.table.side_effect = (
+        lambda name: food_tbl if name == "food_logs" else inbox_tbl
+    )
+
+    if rpc_error:
+        client_mock.rpc.return_value.execute.side_effect = Exception("rpc failed")
+    else:
+        client_mock.rpc.return_value.execute.return_value = MagicMock(data=rpc_result)
+
+    return client_mock
+
+
+def test_confirm_pending_food_creates_food_log_and_confirms(monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_food_confirm_mock(
+        inbox_results=[[PENDING_FOOD_ROW]], rpc_result=FOOD_RPC_RESULT
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inbox_item"]["review_status"] == "confirmed"
+    assert body["food_log"]["id"] == "food-log-uuid-1"
+    mock.rpc.assert_called_once_with(
+        "confirm_food_item",
+        {"p_inbox_id": INBOX_ID, "p_expected_updated_at": "2024-01-01T12:00:00+00:00"},
+    )
+
+
+def test_confirm_food_records_reviewed_at(monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_food_confirm_mock(
+        inbox_results=[[PENDING_FOOD_ROW]], rpc_result=FOOD_RPC_RESULT
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.json()["inbox_item"]["reviewed_at"] is not None
+
+
+def test_confirm_food_links_correct_inbox_item_id(monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_food_confirm_mock(
+        inbox_results=[[PENDING_FOOD_ROW]], rpc_result=FOOD_RPC_RESULT
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.json()["food_log"]["inbox_item_id"] == INBOX_ID
+
+
+def test_confirm_food_duplicate_returns_same_log(monkeypatch):
+    """Confirming an already-confirmed food item returns the existing log without a new RPC."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_food_confirm_mock(
+        inbox_results=[[CONFIRMED_FOOD_ITEM]], food_log_results=[[FOOD_LOG_ROW]]
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    assert response.json()["food_log"]["id"] == "food-log-uuid-1"
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_food_concurrent_creates_at_most_one(monkeypatch):
+    """If the RPC raises mid-race but the item ends up confirmed with a log, return 200."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_food_confirm_mock(
+        inbox_results=[[PENDING_FOOD_ROW], [CONFIRMED_FOOD_ITEM]],
+        food_log_results=[[FOOD_LOG_ROW]],
+        rpc_error=True,
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    assert response.json()["food_log"]["id"] == "food-log-uuid-1"
+
+
+def test_confirm_food_rpc_failure_unchanged_pending_returns_503(monkeypatch):
+    """RPC raised, item still pending with same updated_at and no log → 503."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_food_confirm_mock(
+        inbox_results=[[PENDING_FOOD_ROW], [PENDING_FOOD_ROW]],
+        food_log_results=[[]],
+        rpc_error=True,
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Food confirmation database operation failed"
+
+
+def test_confirm_food_rpc_exception_with_changed_state_returns_409(monkeypatch):
+    """RPC raised and updated_at changed → another writer won → 409."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    changed = {**PENDING_FOOD_ROW, "updated_at": "2024-01-01T13:30:00+00:00"}
+    mock = _make_food_confirm_mock(
+        inbox_results=[[PENDING_FOOD_ROW], [changed]],
+        food_log_results=[[]],
+        rpc_error=True,
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 409
+
+
+def test_confirm_already_confirmed_food_without_log_not_backfilled(monkeypatch):
+    """A food item confirmed before the food module existed is not backfilled."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_food_confirm_mock(
+        inbox_results=[[CONFIRMED_FOOD_ITEM]], food_log_results=[[]]
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 409
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_food_invalid_structured_json_creates_no_log(monkeypatch):
+    """Missing required description → 400, RPC not called."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    bad = {**PENDING_FOOD_ROW, "structured_json": {"meal_type": "lunch"}}  # no description
+    mock = _make_food_confirm_mock(inbox_results=[[bad]])
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_food_whitespace_description_creates_no_log(monkeypatch):
+    """Whitespace-only description passes Pydantic but is caught by explicit check → 400."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    whitespace = {**PENDING_FOOD_ROW, "structured_json": {"description": "   "}}
+    mock = _make_food_confirm_mock(inbox_results=[[whitespace]])
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_food_does_not_insert_in_python(monkeypatch):
+    """The food_log is created only by the RPC — never by a Python .insert."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_food_confirm_mock(
+        inbox_results=[[PENDING_FOOD_ROW]], rpc_result=FOOD_RPC_RESULT
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    mock.rpc.assert_called_once()
+    mock.table("food_logs").insert.assert_not_called()
+    mock.table("inbox_items").insert.assert_not_called()
+
+
+def test_confirm_food_rpc_name_is_confirm_food_item(monkeypatch):
+    """The RPC must be named exactly 'confirm_food_item'."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_food_confirm_mock(
+        inbox_results=[[PENDING_FOOD_ROW]], rpc_result=FOOD_RPC_RESULT
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert mock.rpc.call_args.args[0] == "confirm_food_item"
+
+
+def test_confirm_food_needs_manual_status_returns_409(monkeypatch):
+    """A needs_manual_classification food item cannot be confirmed → 409."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    needs_manual = {**PENDING_FOOD_ROW, "review_status": "needs_manual_classification"}
+    mock = _make_food_confirm_mock(inbox_results=[[needs_manual]])
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 409
+    mock.rpc.assert_not_called()
+
+
+# ===========================================================================
+# Finance amount validation (Issue 3)
+# ===========================================================================
+
+
+def test_confirm_finance_nan_amount_returns_400(monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    nan_row = {
+        **PENDING_FINANCE_ROW,
+        "structured_json": {"amount": float("nan"), "currency": "SGD", "direction": "expense"},
+    }
+    mock = _make_finance_confirm_mock(inbox_results=[[nan_row]])
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_finance_positive_infinity_returns_400(monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    inf_row = {
+        **PENDING_FINANCE_ROW,
+        "structured_json": {"amount": float("inf"), "currency": "SGD", "direction": "expense"},
+    }
+    mock = _make_finance_confirm_mock(inbox_results=[[inf_row]])
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_finance_negative_infinity_returns_400(monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    neg_inf_row = {
+        **PENDING_FINANCE_ROW,
+        "structured_json": {"amount": float("-inf"), "currency": "SGD", "direction": "expense"},
+    }
+    mock = _make_finance_confirm_mock(inbox_results=[[neg_inf_row]])
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_finance_negative_amount_returns_400(monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    neg_row = {
+        **PENDING_FINANCE_ROW,
+        "structured_json": {"amount": -5.0, "currency": "SGD", "direction": "expense"},
+    }
+    mock = _make_finance_confirm_mock(inbox_results=[[neg_row]])
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_finance_valid_positive_amount_succeeds(monkeypatch):
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    mock = _make_finance_confirm_mock(
+        inbox_results=[[PENDING_FINANCE_ROW]], rpc_result=FINANCE_RPC_RESULT
+    )
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    assert response.json()["money_event"]["amount"] == 12.0

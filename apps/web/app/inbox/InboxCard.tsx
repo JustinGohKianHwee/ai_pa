@@ -72,7 +72,11 @@ export function InboxCard({ item }: { item: InboxItem }) {
   const canConfirm = isPending_ && item.item_type !== "unknown";
   const canReject = isPending_ || needsManual;
 
-  const displayText = item.body ?? item.capture?.raw_text ?? "(no text)";
+  const displayText =
+    item.body ||
+    item.capture?.transcript ||
+    item.capture?.raw_text ||
+    "(no text)";
   const hasStructuredData = Object.keys(item.structured_json).length > 0;
 
   function handleConfirm() {

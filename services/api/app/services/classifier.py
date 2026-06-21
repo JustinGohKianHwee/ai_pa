@@ -12,6 +12,7 @@ Exception hierarchy (raised only when the API key is present):
 
 import json
 import logging
+import math
 import os
 from typing import Any, Literal, Optional
 
@@ -75,6 +76,13 @@ class FinanceStructuredJson(BaseModel):
     category: Optional[str] = None
     occurred_at: Optional[str] = None
     notes: Optional[str] = None
+
+    @field_validator("amount")
+    @classmethod
+    def amount_must_be_finite_and_positive(cls, v: float) -> float:
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError("amount must be a finite number greater than zero")
+        return v
 
 
 class CalendarStructuredJson(BaseModel):

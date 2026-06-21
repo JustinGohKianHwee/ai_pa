@@ -8,6 +8,7 @@ load_dotenv(".env.local")
 from fastapi import FastAPI  # noqa: E402 (import after dotenv so env is ready)
 from app.routes.classify import router as classify_router  # noqa: E402
 from app.routes.finance import router as finance_router  # noqa: E402
+from app.routes.food import router as food_router  # noqa: E402
 from app.routes.health import router as health_router  # noqa: E402
 from app.routes.health_db import router as health_db_router  # noqa: E402
 from app.routes.inbox import router as inbox_router  # noqa: E402
@@ -28,4 +29,5 @@ app.include_router(classify_router)
 app.include_router(review_router)
 app.include_router(tasks_router)
 app.include_router(finance_router)
+app.include_router(food_router)
 app.include_router(telegram_router)

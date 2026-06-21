@@ -1,19 +1,15 @@
 # services/api — Backend API
 
-**Status: Phase 10 — voice transcription ✓ complete.**
+**Status: Phase 11 — food logs module ✓ complete.**
 
-Telegram voice notes are now captured and transcribed through the same pipeline as text. The
-webhook detects `message.voice`, downloads the OGG via Telegram's `getFile` API (25 MB limit),
-transcribes it with OpenAI Whisper (`whisper-1`, pinned to English with `language="en"`), and feeds the transcript to the existing
-classifier. Transcription failure sets `processing_status="transcription_failed"` and
-`review_status="needs_manual_classification"`. Two `agent_runs` rows are written on the happy
-path: `transcriber` then `text_classifier`. 186 tests pass (all mocked).
+Confirming a **food** inbox item calls the `confirm_food_item` RPC, atomically creating one
+linked `food_logs` row and marking the item confirmed. `GET /food_logs?date=today` returns
+today's confirmed meals using a `USER_TIMEZONE`-aware UTC window on `created_at`. Only
+`date=today` or no date parameter is accepted; unsupported values return 422.
 
-Phase 9 (✓ complete): Confirming a **task** calls the `confirm_task_item` RPC; confirming a
-finance **expense** calls the `confirm_finance_item` RPC — each atomically creates one linked
-domain row, marks the item `confirmed`, and records `reviewed_at`. Finance **income** and
-module-less types use the Phase 7 status-only path. Migrations `0001`–`0005` are applied to
-the project, and the Phase 10 voice-note E2E has passed.
+Phase 10 (✓ complete): Telegram voice notes are captured and transcribed via OpenAI Whisper.
+Confirming a **task** calls `confirm_task_item`; confirming a finance **expense** calls
+`confirm_finance_item`. Migrations `0001`–`0006` are applied. 211 tests pass (all mocked).
 
 ## Planned stack
 - Python 3.11+
@@ -54,6 +50,7 @@ app/
     review.py        — PATCH /inbox/{id}/confirm | /reject | edit (review actions)
     tasks.py         — GET /tasks, PATCH /tasks/{id}/complete (tasks module)
     finance.py       — GET /money_events (finance module, read-only)
+    food.py          — GET /food_logs (food module, read-only, ?date=today filter)
     telegram.py      — POST /telegram/webhook (Telegram capture)
 tests/
   test_health.py             — /health endpoint tests
@@ -84,6 +81,7 @@ Copy the root `.env.example` to `services/api/.env.local` and fill in your value
 | `TELEGRAM_USER_ID` | `POST /telegram/webhook` | Your Telegram numeric user ID; missing = server misconfiguration (500) |
 | `ANTHROPIC_API_KEY` | Possible future capabilities | Not required for Phase 6 classification |
 | `OPENAI_API_KEY` | Phase 6 classification and Phase 10 transcription | Required for AI classification |
+| `USER_TIMEZONE` | `GET /food_logs?date=today` (Phase 11+) | IANA timezone string, e.g. `Asia/Singapore`. Defaults to `UTC` if unset. Used to compute local-midnight boundaries for the today filter. |
 
 **`SUPABASE_SERVICE_ROLE_KEY`** is used only in `app/db/supabase_client.py`.
 It must never appear in `apps/web/` env vars, browser bundles, or client responses.
@@ -102,6 +100,7 @@ It must never appear in `apps/web/` env vars, browser bundles, or client respons
 | `GET` | `/tasks` | `DEV_ADMIN_TOKEN` | Read-only list of confirmed tasks, newest first. |
 | `PATCH` | `/tasks/{id}/complete` | `DEV_ADMIN_TOKEN` | Marks a task `completed` and sets `completed_at`. Idempotent. 404 if missing. No task editing. |
 | `GET` | `/money_events` | `DEV_ADMIN_TOKEN` | Read-only list of confirmed expenses, newest first, with `totals_by_currency` (grouped by currency then category; currencies never summed together). |
+| `GET` | `/food_logs` | `DEV_ADMIN_TOKEN` | Read-only list of confirmed food logs, newest first. `?date=today` filters by the user's local calendar day (based on `USER_TIMEZONE`), using `created_at` UTC boundaries — not `logged_at`. Only `date=today` or no param accepted; other values return 422. |
 | `POST` | `/telegram/webhook` | `TELEGRAM_WEBHOOK_SECRET` header | Telegram text and voice capture. Text → classify directly. Voice → download OGG → Whisper → classify. Non-text/voice updates silently ignored. |
 
 `/telegram/webhook` uses its own secret (`X-Telegram-Bot-Api-Secret-Token` header), **not**
@@ -173,7 +172,7 @@ cd services/api
 # .venv/bin/pytest            # macOS/Linux
 ```
 
-Expected: `186 passed` — no real Supabase, OpenAI, or Telegram calls.
+Expected: `211 passed` — no real Supabase, OpenAI, or Telegram calls.
 
 ## Local curl example — Telegram-like payload
 
@@ -229,3 +228,4 @@ Expected response:
 - Phase 8: Tasks module (MVP), `supabase/migrations/0002_tasks.sql` (`tasks` table + `confirm_task_item` atomic RPC), `app/routes/tasks.py` (`GET /tasks`, `PATCH /tasks/{id}/complete`), task branch in `confirm`. First atomic confirm-plus-domain-record; idempotent via UNIQUE `inbox_item_id`.
 - Phase 9: Finance module, `supabase/migrations/0003_money_events.sql` (`money_events` table + `confirm_finance_item` atomic RPC), `app/routes/finance.py` (`GET /money_events` with currency/category totals), finance-expense branch in `confirm`. Expense-only; income confirms status-only. Currencies never summed together. ✓ complete.
 - Phase 10: Voice transcription ✓ complete, `supabase/migrations/0004_capture_transcription_status.sql` (widens `processing_status` CHECK), `supabase/migrations/0005_capture_unique_source.sql` (UNIQUE on capture_events + inbox_items), `app/services/transcriber.py` (Whisper-1 service, English pinned), `telegram.py` extended with `TelegramVoice` model, `_transcribe_and_update`, and `_capture_voice` path. 25 MB audio limit enforced pre- and post-download. Two `agent_runs` rows on happy path (transcriber + text_classifier). All inbox INSERTs wrapped with conflict recovery so concurrent retries never produce duplicate inbox rows. Manual E2E passed.
+- Phase 11: Food logs module ✓ complete, `supabase/migrations/0006_food_logs.sql` (`food_logs` table + `confirm_food_item` atomic RPC), `app/routes/food.py` (`GET /food_logs` with `?date=today` filtering via `USER_TIMEZONE`-aware UTC boundaries), food branch in `confirm` (`review.py`). `logged_at` stored as verbatim TEXT; date filtering uses `created_at`. `tzdata` added to requirements for cross-platform timezone support. 211 tests pass.

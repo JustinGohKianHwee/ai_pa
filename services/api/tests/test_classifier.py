@@ -91,6 +91,50 @@ def test_finance_json_invalid_direction_raises():
         )
 
 
+def test_finance_json_zero_amount_raises():
+    with pytest.raises(ValidationError):
+        ClassificationResult(
+            item_type="finance",
+            title="t",
+            body="b",
+            structured_json={"amount": 0, "currency": "SGD", "direction": "expense"},
+            confidence=0.9,
+        )
+
+
+def test_finance_json_negative_amount_raises():
+    with pytest.raises(ValidationError):
+        ClassificationResult(
+            item_type="finance",
+            title="t",
+            body="b",
+            structured_json={"amount": -5.0, "currency": "SGD", "direction": "expense"},
+            confidence=0.9,
+        )
+
+
+def test_finance_json_nan_amount_raises():
+    with pytest.raises(ValidationError):
+        ClassificationResult(
+            item_type="finance",
+            title="t",
+            body="b",
+            structured_json={"amount": float("nan"), "currency": "SGD", "direction": "expense"},
+            confidence=0.9,
+        )
+
+
+def test_finance_json_infinity_amount_raises():
+    with pytest.raises(ValidationError):
+        ClassificationResult(
+            item_type="finance",
+            title="t",
+            body="b",
+            structured_json={"amount": float("inf"), "currency": "SGD", "direction": "expense"},
+            confidence=0.9,
+        )
+
+
 def test_task_json_invalid_urgency_raises():
     with pytest.raises(ValidationError):
         ClassificationResult(
