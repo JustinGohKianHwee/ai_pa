@@ -15,7 +15,7 @@ export default function Home() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
           <div className="mb-6">
             <span className="inline-block bg-green-100 text-green-800 text-xs font-medium px-2.5 py-1 rounded-full">
-              Phase 12 — Calendar intents module
+              Phase 13 — Daily review
             </span>
           </div>
 
@@ -78,6 +78,17 @@ export default function Home() {
           <div>
             <p className="font-medium text-gray-900 group-hover:text-gray-700">Calendar</p>
             <p className="text-sm text-gray-400 mt-0.5">Confirmed intentions</p>
+          </div>
+          <span className="text-gray-300 group-hover:text-gray-400 text-lg">→</span>
+        </Link>
+
+        <Link
+          href="/review"
+          className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-gray-300 hover:shadow transition group"
+        >
+          <div>
+            <p className="font-medium text-gray-900 group-hover:text-gray-700">Review</p>
+            <p className="text-sm text-gray-400 mt-0.5">Today&apos;s activity summary</p>
           </div>
           <span className="text-gray-300 group-hover:text-gray-400 text-lg">→</span>
         </Link>

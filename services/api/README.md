@@ -1,15 +1,16 @@
 # services/api — Backend API
 
-**Status: Phase 12 — calendar intents module ✓ complete.**
+**Status: Phase 13 — daily review (implementation complete; manual verification pending).**
 
-Confirming a **calendar** inbox item calls the `confirm_calendar_item` RPC, atomically creating
-one linked `calendar_intents` row and marking the item confirmed in a single transaction.
-`GET /calendar_intents` returns all confirmed calendar intents ordered by `created_at DESC`.
-`proposed_datetime` is stored as verbatim TEXT (not parsed). Migration `0007` adds the table.
+`GET /daily_review?date=today` returns today's captures, confirmed items, rejected items, and
+pending items as a structured read-only summary. Three Supabase queries: Q1 on `capture_events`
+(with embedded `inbox_items` via reverse-FK select), Q2+Q3 on `inbox_items` by `reviewed_at`.
+`USER_TIMEZONE` is required — missing or invalid IANA name → 503. Summary is deterministic
+(no AI call). No migration — reads existing tables only.
 
-Phase 11 (✓ complete): food logs module — `confirm_food_item` RPC + `GET /food_logs?date=today`
-with `USER_TIMEZONE`-aware UTC boundaries. Phase 10 (✓ complete): voice transcription.
-Migrations `0001`–`0007` applied. 248 tests pass (all mocked).
+Phase 12 (✓ complete): calendar intents — `confirm_calendar_item` RPC + `GET /calendar_intents`.
+Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription.
+Migrations `0001`–`0007` applied. 270 tests pass (all mocked).
 
 ## Planned stack
 - Python 3.11+
@@ -52,6 +53,7 @@ app/
     finance.py       — GET /money_events (finance module, read-only)
     food.py          — GET /food_logs (food module, read-only, ?date=today filter)
     calendar.py      — GET /calendar_intents (calendar module, read-only)
+    daily_review.py  — GET /daily_review (read-only daily activity summary, Phase 13)
     telegram.py      — POST /telegram/webhook (Telegram capture)
 tests/
   test_health.py             — /health endpoint tests
@@ -65,6 +67,7 @@ tests/
   test_finance.py            — finance API tests (mocked Supabase)
   test_food.py               — food logs API tests (mocked Supabase)
   test_calendar_intents.py   — calendar intents API tests (mocked Supabase)
+  test_daily_review.py       — daily review API tests (mocked Supabase; 22 tests)
   test_telegram_webhook.py   — Telegram text webhook tests (mocked Supabase + httpx)
   test_telegram_voice.py     — Telegram voice transcription tests (Phase 10)
 ```
@@ -84,7 +87,7 @@ Copy the root `.env.example` to `services/api/.env.local` and fill in your value
 | `TELEGRAM_USER_ID` | `POST /telegram/webhook` | Your Telegram numeric user ID; missing = server misconfiguration (500) |
 | `ANTHROPIC_API_KEY` | Possible future capabilities | Not required for Phase 6 classification |
 | `OPENAI_API_KEY` | Phase 6 classification and Phase 10 transcription | Required for AI classification |
-| `USER_TIMEZONE` | `GET /food_logs?date=today` (Phase 11+) | IANA timezone string, e.g. `Asia/Singapore`. Defaults to `UTC` if unset. Used to compute local-midnight boundaries for the today filter. |
+| `USER_TIMEZONE` | `GET /food_logs?date=today` (Phase 11+), `GET /daily_review` (Phase 13+) | IANA timezone string, e.g. `Asia/Singapore`. `food.py` defaults to UTC if unset. `daily_review.py` requires it — missing or invalid IANA name → 503. |
 
 **`SUPABASE_SERVICE_ROLE_KEY`** is used only in `app/db/supabase_client.py`.
 It must never appear in `apps/web/` env vars, browser bundles, or client responses.
@@ -105,6 +108,7 @@ It must never appear in `apps/web/` env vars, browser bundles, or client respons
 | `GET` | `/money_events` | `DEV_ADMIN_TOKEN` | Read-only list of confirmed expenses, newest first, with `totals_by_currency` (grouped by currency then category; currencies never summed together). |
 | `GET` | `/food_logs` | `DEV_ADMIN_TOKEN` | Read-only list of confirmed food logs, newest first. `?date=today` filters by the user's local calendar day (based on `USER_TIMEZONE`), using `created_at` UTC boundaries — not `logged_at`. Only `date=today` or no param accepted; other values return 422. |
 | `GET` | `/calendar_intents` | `DEV_ADMIN_TOKEN` | Read-only list of all confirmed calendar intents, ordered by `created_at DESC`. `proposed_datetime` is verbatim text — not parsed. No date filter. |
+| `GET` | `/daily_review` | `DEV_ADMIN_TOKEN` | Read-only daily activity summary. Only `?date=today` or no param accepted; other values return 422. Requires `USER_TIMEZONE` — missing or invalid → 503. Returns captured/confirmed/rejected/pending counts, item lists, and a deterministic summary string. No AI call. |
 | `POST` | `/telegram/webhook` | `TELEGRAM_WEBHOOK_SECRET` header | Telegram text and voice capture. Text → classify directly. Voice → download OGG → Whisper → classify. Non-text/voice updates silently ignored. |
 
 `/telegram/webhook` uses its own secret (`X-Telegram-Bot-Api-Secret-Token` header), **not**
@@ -176,7 +180,7 @@ cd services/api
 # .venv/bin/pytest            # macOS/Linux
 ```
 
-Expected: `248 passed` — no real Supabase, OpenAI, or Telegram calls.
+Expected: `270 passed` — no real Supabase, OpenAI, or Telegram calls.
 
 ## Local curl example — Telegram-like payload
 
@@ -234,3 +238,4 @@ Expected response:
 - Phase 10: Voice transcription ✓ complete, `supabase/migrations/0004_capture_transcription_status.sql` (widens `processing_status` CHECK), `supabase/migrations/0005_capture_unique_source.sql` (UNIQUE on capture_events + inbox_items), `app/services/transcriber.py` (Whisper-1 service, English pinned), `telegram.py` extended with `TelegramVoice` model, `_transcribe_and_update`, and `_capture_voice` path. 25 MB audio limit enforced pre- and post-download. Two `agent_runs` rows on happy path (transcriber + text_classifier). All inbox INSERTs wrapped with conflict recovery so concurrent retries never produce duplicate inbox rows. Manual E2E passed.
 - Phase 11: Food logs module ✓ complete, `supabase/migrations/0006_food_logs.sql` (`food_logs` table + `confirm_food_item` atomic RPC), `app/routes/food.py` (`GET /food_logs` with `?date=today` filtering via `USER_TIMEZONE`-aware UTC boundaries), food branch in `confirm` (`review.py`). `logged_at` stored as verbatim TEXT; date filtering uses `created_at`. `tzdata` added to requirements for cross-platform timezone support. 235 tests pass.
 - Phase 12: Calendar intents module ✓ complete, `supabase/migrations/0007_calendar_intents.sql` (`calendar_intents` table + `confirm_calendar_item` atomic RPC), `app/routes/calendar.py` (`GET /calendar_intents`), calendar branch in `confirm` (`review.py`). `proposed_datetime` stored as verbatim TEXT; no date filter; ordered by `created_at DESC`. No `status` column, no `user_id`. 248 tests pass.
+- Phase 13: Daily review module (implementation complete; manual verification pending), `app/routes/daily_review.py` (`GET /daily_review`). Three read-only queries: `capture_events.created_at` for captures (embedded inbox_items via reverse-FK select), `inbox_items.reviewed_at` for confirmed/rejected. `USER_TIMEZONE` required — missing or invalid → 503. Deterministic summary, no AI call, no migration. 270 tests pass.

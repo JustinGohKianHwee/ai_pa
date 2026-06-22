@@ -69,21 +69,21 @@ that reads or mutates personal data. The webhook validates its own secret.
 
 ## Current status
 
-**Phase 12 — calendar intents module ✓ complete.**
+**Phase 13 — daily review (implementation complete; manual verification pending).**
 
-Confirming a **calendar** inbox item calls the `confirm_calendar_item` RPC, atomically creating
-one linked `calendar_intents` row and marking the item confirmed in a single transaction.
-`GET /calendar_intents` returns all confirmed intents ordered by `created_at DESC`.
-`proposed_datetime` is stored verbatim as TEXT (no parsing). The `/calendar` dashboard page
-shows confirmed intentions. 248 backend tests pass.
+`GET /daily_review?date=today` returns a read-only structured summary of today's activity:
+captures, confirmed items, rejected items, and pending items — with counts, item lists, and a
+deterministic summary string. No AI call on page load. `USER_TIMEZONE` is required (no silent
+UTC default); missing or invalid IANA name → 503. No migration — reads existing tables only.
+The `/review` dashboard page shows the daily summary. 270 backend tests pass.
 
-Phase 11 (✓ complete): food logs — `confirm_food_item` RPC + `GET /food_logs?date=today`.
-Phase 10 (✓ complete): voice transcription via Whisper.
-Migrations `0001`–`0007` are applied to the project.
+Phase 12 (✓ complete): calendar intents — `confirm_calendar_item` RPC + `GET /calendar_intents`.
+Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription via Whisper.
+Migrations `0001`–`0007` applied.
 
 Milestones: **Phase 6** — classification end-to-end. **Phase 7** — review layer. **Phase 8** —
 MVP (tasks + atomic confirm). **Phase 9** — finance expenses. **Phase 10** — voice transcription.
-**Phase 11** — food logs. **Phase 12** — calendar intents.
+**Phase 11** — food logs. **Phase 12** — calendar intents. **Phase 13** — daily review.
 
 ---
 
@@ -139,10 +139,10 @@ cd services/api
 # .venv/bin/pytest            # macOS/Linux
 ```
 
-Expected output: `248 passed` covering health, Supabase client, inbox read/review/edit,
-task + finance + food + calendar confirmation, the tasks, finance, food, and calendar APIs,
-AI classification, Telegram webhook text capture, and voice transcription. All external calls
-are mocked.
+Expected output: `270 passed` covering health, Supabase client, inbox read/review/edit,
+task + finance + food + calendar confirmation, the tasks, finance, food, calendar, and daily
+review APIs, AI classification, Telegram webhook text capture, and voice transcription. All
+external calls are mocked.
 
 ---
 
