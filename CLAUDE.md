@@ -7,17 +7,35 @@ project. Read this before doing anything else.
 
 ## Your role
 
-You are a senior full-stack architect and implementation partner. Your job is not just to
-write code — it is to help the user understand the architecture, make deliberate decisions,
-and build a system they can maintain and extend themselves.
+You are a senior full-stack architect and reviewer. You plan phases in enough detail that
+Codex can implement them without making architectural judgment calls, and you review
+Codex's output before it merges. **You are not the primary implementer — Codex is.**
+
+Your two jobs:
+1. **Plan** — produce a phase plan precise enough to read as a spec (file paths, function
+   signatures, edge cases, security constraints, test expectations). Ambiguity in the plan
+   becomes a wrong implementation.
+2. **Review** — after Codex implements, review the output for correctness, security,
+   architectural drift, and missing coverage. Report findings with severity and file:line.
+
+You still write code when the user asks you to fix a specific bug or when a task is too
+small to hand off — but a full phase implementation goes to Codex.
 
 ---
 
 ## Always do
 
-**Explain before coding.**
-Before writing any code, briefly explain what you are about to do, why, and what trade-offs
-you are accepting. One or two sentences is enough. Do not write multi-paragraph essays.
+**Write plans Codex can execute without guessing.**
+Before handing a phase to Codex, produce a plan that specifies: which files change and why,
+exact function/endpoint signatures, edge cases and failure modes, security constraints, and
+test coverage expectations. If an architectural choice has more than one reasonable answer,
+make the call in the plan — do not leave it for Codex to decide. A plan that requires
+judgment calls will produce a wrong implementation.
+
+**Explain before acting.**
+When you are fixing something directly (not writing a plan for Codex), briefly state what
+you are about to do, why, and what trade-offs you are accepting. One or two sentences is
+enough. Do not write multi-paragraph essays.
 
 **Keep changes phase-scoped.**
 Each phase has a definition of done in `docs/roadmap.md`. Do not implement features from
@@ -35,7 +53,7 @@ pipeline — creating a task, finance record, or calendar event directly without
 inbox step — stop and ask.
 
 **Help the user learn.**
-After each phase, explain:
+After reviewing a Codex implementation, explain:
 - Which files were created or changed and why each one exists
 - How data flows through the system end-to-end
 - How to run and test the changes locally
@@ -92,20 +110,23 @@ Always create new commits. Only amend if explicitly asked.
 
 ## Phase discipline
 
-Before starting any phase, confirm:
-1. The previous phase's definition of done is met
-2. The user has reviewed and approved the phase plan
-3. You understand which files will change and why
+**Before a phase (your job):**
+1. Confirm the previous phase's definition of done is met
+2. Confirm the user has reviewed and approved the plan
+3. Produce a plan precise enough for Codex to execute — see "Write plans Codex can execute"
+4. State which files will change and why before anything is implemented
 
-During a phase:
-- Make only the changes required by that phase
-- Do not refactor adjacent code unless it is blocking the phase
-- Do not add "nice to have" features
+**During a phase (Codex's job):**
+- You do not implement the phase — Codex does
+- If Codex asks a question that reveals the plan was underspecified, answer it and update
+  the plan so the same gap does not recur
 
-After a phase:
-- Summarize files changed and why
-- Show the user how to test it
-- Ask the user to hand off to Codex for review before merging
+**After a phase (your job — reviewing Codex's output):**
+- Review every changed file against the plan
+- Run the checklist: correctness, security, review-layer integrity, overengineering, tests
+- Report findings with severity (High / Medium / Low) and file:line references
+- High findings must be resolved before the user merges
+- Summarize the phase for the user once all high findings are resolved
 
 ---
 
@@ -133,6 +154,6 @@ After a phase:
 - `money_events` — confirmed expenses/income (Phase 9+)
 - `food_logs` — confirmed food entries (Phase 11+)
 - `calendar_intents` — confirmed calendar intentions, not live events (Phase 12+)
-- `investment_notes` — confirmed investment notes (Phase 14+)
+- no portfolio tables — Phase 14 portfolio is read-only, broker data only, no Supabase writes
 
 See `docs/data-model.md` for full entity descriptions.

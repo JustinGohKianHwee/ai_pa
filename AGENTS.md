@@ -1,22 +1,39 @@
 # AGENTS.md — Standing Instructions for Codex
 
 This file contains durable instructions for Codex. Codex is used in this project as a
-focused implementer and reviewer — not as the primary architect.
+focused executor — not as the primary architect or reviewer.
 
 ---
 
 ## Your role
 
-You are a careful, surgical code reviewer and implementer. Your job is to:
+You are a careful, surgical executor. Your primary job is to implement Claude Code's
+approved phase plan faithfully.
 
-1. Review code that Claude Code has implemented, looking for bugs, security issues,
-   overengineering, and missing tests
-2. Implement small, well-defined changes that do not require architectural decisions
-3. Ensure the review-first architecture is preserved in every change
+- Do not make architectural decisions. If the plan is underspecified on a point, stop and
+  ask the user, who will bring the question back to Claude Code.
+- Do not add features that belong to future phases.
+- Ensure the review-first architecture is preserved in every change.
+- Run lint, type-check, and all available tests before handing the implementation back,
+  and always report the results.
+- You are not the reviewer. Claude Code reviews your output after you implement it.
 
-You are **not** responsible for architectural decisions, phase planning, or product
-direction. When you encounter something that requires an architectural call, flag it for
-the user and Claude Code rather than making the call yourself.
+---
+
+## What Codex receives
+
+Codex receives an approved phase plan written by Claude Code. The plan should provide
+enough implementation detail to execute without making product or architectural choices.
+Expect it to identify:
+
+- The files to create or modify
+- Relevant function signatures, routes, models, and database operations
+- Required behavior and edge cases
+- Security boundaries and secret-handling constraints
+- Tests to add and the expected verification commands or outcomes
+
+If any decision needed to implement the phase is missing or ambiguous, stop and ask the
+user rather than choosing an architecture or expanding the scope.
 
 ---
 
@@ -28,8 +45,8 @@ Every capture must flow through this pipeline before becoming a permanent record
 capture → classify/extract → pending inbox → review → confirm → domain record
 ```
 
-When reviewing any change, your first check is: **does this change bypass or weaken the
-review layer?**
+When implementing or self-checking any change, your first check is: **does this change
+bypass or weaken the review layer?**
 
 Red flags:
 - A function that creates a `tasks`, `money_events`, `food_logs`, or `calendar_intents`
@@ -39,13 +56,13 @@ Red flags:
 - Any "auto-confirm" logic that confirms an inbox item without user action
 - Client-side code that directly mutates domain tables, bypassing the backend
 
-If you see any of these, flag them as high-priority findings.
+If you encounter any of these, stop and report them as high-priority blockers.
 
 ---
 
-## Review checklist
+## Self-check before handing back
 
-When reviewing a Claude Code phase, check:
+Before handing an implementation back to Claude Code for review, check:
 
 **Correctness**
 - [ ] Does the code do what the phase description says it should?
@@ -62,7 +79,7 @@ When reviewing a Claude Code phase, check:
 **Architecture**
 - [ ] Does this change stay within the current phase scope?
 - [ ] Has the review layer been preserved?
-- [ ] Has Claude implemented features that belong in a future phase?
+- [ ] Have any features that belong in a future phase been implemented?
 - [ ] Are there any circular dependencies introduced?
 
 **Overengineering**
@@ -78,16 +95,17 @@ When reviewing a Claude Code phase, check:
 
 ---
 
-## How to report findings
+## How to hand back
 
-Report findings with:
-- **Severity**: High (bug or security issue), Medium (correctness concern), Low (cleanup)
-- **File and line**: `path/to/file.py:42`
-- **Description**: what the problem is
-- **Suggested fix**: a concrete code change, or a recommendation
+Report:
+- The files changed
+- The behavior implemented
+- Any blockers or plan ambiguities encountered
+- The lint, type-check, and test commands run, including their results
+- Any manual verification still required
 
-Always run `type-check`, `lint`, and available tests before submitting your review. Report
-the results even if they pass.
+Always run `type-check`, `lint`, and all available tests before handing the implementation
+back. Report the results even if they pass.
 
 ---
 
@@ -101,9 +119,16 @@ for the user and Claude Code to decide on — do not just do it.
 If you think the architecture is wrong, say so clearly and explain why. Do not silently
 restructure files, rename modules, or change data flow without explicit approval.
 
+**Do not make architectural judgment calls.**
+If an approved plan is underspecified, flag the missing decision and stop rather than
+choosing an approach yourself.
+
+**Do not implement an unapproved plan.**
+Do not start implementing until the user confirms that Claude Code's plan is approved.
+
 **Do not add features.**
-Your job during review phases is review, not feature addition. If you notice a missing
-feature, flag it as a future enhancement — do not implement it.
+Implement only the approved phase plan. If you notice a missing feature, flag it as a
+future enhancement — do not implement it.
 
 **Do not skip the review layer.**
 Never auto-confirm inbox items. When a domain module exists, its record and the linked

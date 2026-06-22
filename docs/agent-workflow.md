@@ -8,58 +8,91 @@ How Claude Code and Codex should be used together during the build.
 
 | Agent | Primary role | When to use |
 |-------|-------------|-------------|
-| **Claude Code** | Architect and implementer | Architecture decisions, multi-file phase implementations, explanations, doc updates |
-| **Codex** | Reviewer and surgical implementer | Reviewing Claude's work, small focused fixes, writing tests, catching bugs |
+| **Claude Code** | Architect + Reviewer | Phase planning, security review, post-implementation review, architecture decisions, doc updates |
+| **Codex** | Executor | Implement Claude's phase plan, write tests, verify lint/type-check/tests pass before handing back |
 
-Neither agent replaces the other. The most effective workflow alternates between them:
-Claude implements a phase, Codex reviews it, the user merges and moves on.
+The workflow for every phase is: **Claude plans → Codex implements → Claude reviews.**
+
+Neither agent replaces the other. Claude's plan is the contract Codex works to.
+Claude's review is the gate before merging.
 
 ---
 
 ## Phase workflow
 
-### Before a phase begins
+### Before a phase (Claude Code)
 
-1. The user reads the phase definition in `docs/roadmap.md`
-2. The user opens Claude Code and says: "We are starting Phase N — [name]"
-3. Claude Code reads `CLAUDE.md`, `docs/roadmap.md` (the relevant phase), and any files
+1. The user opens Claude Code and says: "We are starting Phase N — [name]"
+2. Claude Code reads `CLAUDE.md`, `docs/roadmap.md` (the relevant phase), and any files
    it needs to understand the current state
-4. Claude Code confirms its understanding of the phase scope before writing any code
-5. If anything is unclear, Claude Code asks before building
+3. Claude Code confirms the previous phase's definition of done before proceeding
+4. Claude Code writes a plan that includes:
+   - Which files change and why each one exists
+   - Exact function/endpoint signatures and data shapes
+   - Edge cases, failure modes, and security constraints
+   - Test coverage expectations (which scenarios must be tested)
+   - Any architectural choice with more than one reasonable answer — decided in the plan,
+     not left for Codex to resolve
+5. The user reviews and approves the plan before Codex starts
 
-### During a phase
+### During a phase (Codex)
 
-- Claude Code works on only the files required by that phase
-- Claude Code does not refactor adjacent code unless it is directly blocking the phase
-- Claude Code does not add features that belong to future phases
-- If Claude Code notices something that should be in a future phase, it flags it in a
-  comment or note — but does not build it
+- Codex implements the approved plan exactly
+- Codex does not make architectural decisions — if the plan is underspecified on a point,
+  Codex stops and asks the user, who brings the question back to Claude Code
+- Codex does not add features that belong to future phases
+- Codex runs lint, type-check, and all tests before handing back; reports the results
 
-### After a phase (Claude Code summary)
+### After a phase (Claude Code review)
 
-Claude Code must provide:
-- A list of files created or modified, with a one-line explanation of why each one exists
-- A description of how data flows through the new code end-to-end
-- Instructions for how to run and test the changes locally
-- At least one thing that could break in production and why
-- What the user should understand about this phase before moving on
+1. The user opens Claude Code and says: "Review Phase N — [name]. Codex has implemented it."
+2. Claude Code reads every changed file against the approved plan
+3. Claude Code checks the review checklist (see below)
+4. Claude Code reports findings with file:line references and severity ratings
+5. High findings must be resolved before merging — Claude Code either fixes them directly
+   or writes a precise sub-plan for Codex to fix them
+6. Once all high findings are resolved, Claude Code provides the post-phase summary
 
-### After a phase (Codex review)
+### Review checklist (Claude Code uses this when reviewing Codex output)
 
-1. The user opens Codex and says: "Review Phase N — [name]. See AGENTS.md for instructions."
-2. Codex reviews all changed files using the checklist in `AGENTS.md`
-3. Codex runs type-check, lint, and any available tests
-4. Codex reports findings with file:line references and severity ratings
-5. High findings must be resolved before merging
-6. Medium and low findings can be deferred if the user decides they are acceptable
+**Pipeline integrity**
+- [ ] Does any change bypass the capture → inbox → review → confirm → domain record pipeline?
+- [ ] Is any domain record created without an explicit user-confirmation step?
+
+**Correctness**
+- [ ] Does the code match the approved plan?
+- [ ] Are there null-dereference risks, incorrect type assumptions, or off-by-one errors?
+- [ ] Are database writes correct (right table, right columns, no missing NOT NULL fields)?
+- [ ] Are async operations awaited correctly?
+
+**Security**
+- [ ] Are secrets read from environment variables only — never hardcoded or leaked to the frontend?
+- [ ] Is user input validated at system boundaries?
+- [ ] Are webhook endpoints verifying their secret tokens?
+- [ ] For broker/financial code: are allowlists enforced, are non-finite floats rejected,
+     is TLS handled correctly?
+
+**Scope**
+- [ ] Does the implementation stay within the current phase scope?
+- [ ] Has Codex added features that belong to a future phase?
+- [ ] Are there circular dependencies introduced?
+
+**Overengineering**
+- [ ] Is any abstraction added that is not required by the phase?
+- [ ] Is there premature generalization or unnecessary configurability?
+
+**Tests**
+- [ ] Are there tests for non-trivial logic and all new API endpoints?
+- [ ] Does the full existing test suite still pass?
 
 ### Merging
 
 Only merge a phase when:
-- Claude Code has provided its post-phase summary
-- Codex has completed its review
+- Claude Code's plan was approved before implementation started
+- Codex has confirmed lint, type-check, and tests pass
+- Claude Code has completed its review
 - All high-severity findings are resolved
-- The user has tested the feature manually (where possible)
+- The user has manually tested the feature where possible
 
 ---
 
@@ -68,40 +101,38 @@ Only merge a phase when:
 For each phase, use a separate branch:
 
 ```
-main                    ← stable, reviewed code only
-  └── phase-1-scaffold  ← Claude Code works here
-  └── phase-2-schema    ← Claude Code works here
-  └── phase-3-api       ← Claude Code works here
+main                      ← stable, reviewed code only
+  └── phase-N-name        ← Codex implements here
 ```
 
-If both agents are working simultaneously on the same phase (e.g. Claude implements
-while Codex reviews a prior phase):
-- Claude works on `phase-N`
-- Codex reviews on `phase-N-review` (a branch off `phase-N`)
-- Codex's fix commits are cherry-picked or merged back to `phase-N`
+If a finding from Claude's review requires a fix:
+- Small fixes: Claude Code commits directly to the phase branch
+- Larger fixes: Claude Code writes a sub-plan; Codex implements on the same branch
 
 ---
 
 ## What to never do
 
-**Do not let either agent make broad refactors without approval.**
-A refactor that touches more than the current phase scope requires explicit user
-approval. If an agent starts refactoring things that were not part of the task, stop it.
+**Do not let Codex make architectural decisions.**
+If Codex encounters an underspecified point and makes a judgment call instead of asking,
+that judgment call needs to be reviewed carefully. Codex's job is faithful execution of the
+plan, not design.
 
-**Do not let Claude skip ahead.**
-Claude Code must not implement Phase N+1 while Phase N is in progress. If you notice
-Claude adding features that belong to a future phase, call it out.
+**Do not let Claude skip the plan step.**
+Claude Code must not implement a full phase directly anymore. If Claude starts writing
+implementation code for a phase that has not been handed to Codex, stop it. The plan must
+come first so the user can review it before any code is written.
 
-**Do not let Codex change architecture.**
-Codex's job during review is to find bugs, not redesign systems. If Codex thinks the
-architecture is wrong, it should flag it as a finding — not rewrite it.
-
-**Do not bypass the review layer.**
+**Do not let either agent bypass the review layer.**
 If either agent writes code that creates domain records without going through the inbox,
 reject the change immediately. This is a high-severity finding in every review.
 
-**Do not merge without review.**
-Every phase gets a Codex review before merging. No exceptions during the build phase.
+**Do not merge without Claude's review.**
+Every phase gets a Claude Code review after Codex implements. No exceptions.
+
+**Do not let Codex change architecture.**
+Codex's job is execution, not design. If Codex thinks the architecture is wrong, it should
+flag it for the user and Claude Code — not restructure it silently.
 
 ---
 
@@ -114,16 +145,17 @@ must be updated in the same phase:
 - `CLAUDE.md` if a new standing instruction is needed
 - `docs/roadmap.md` if a phase definition changes
 
-Documentation updates are part of the phase, not optional cleanup.
+Documentation updates are part of the phase plan — Claude Code includes them in the plan,
+Codex implements them, Claude Code verifies them during review.
 
 ---
 
-## Using Codex as a learning tool
+## Using Claude Code as a learning tool
 
-After each phase, you can ask Codex to:
-- Explain a specific piece of code that Claude wrote
-- Generate test cases for a specific function or endpoint
-- Write a short summary of what the phase built and how it fits the larger system
-- Check for any patterns that differ from the architecture docs
+After each phase review, ask Claude Code to:
+- Explain why a specific design choice was made in the plan
+- Walk through the data flow for a new feature end-to-end
+- Describe what could break in production and why
+- Explain what the next phase builds on top of this one
 
-This helps you stay informed and build your own understanding alongside the agents.
+This helps you stay informed and build your own mental model alongside the agents.
