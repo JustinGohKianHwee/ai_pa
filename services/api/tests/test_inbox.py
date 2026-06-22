@@ -7,7 +7,9 @@ from app.main import app
 
 client = TestClient(app)
 
-VALID_TOKEN = "test-dev-admin-token-xyz"
+from tests.conftest import mint_test_token
+
+VALID_TOKEN = mint_test_token()
 
 SAMPLE_ROW = {
     "id": "inbox-uuid-1",
@@ -53,20 +55,18 @@ def _auth_header(token: str = VALID_TOKEN) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_inbox_missing_token_header_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_inbox_missing_token_header_returns_401(monkeypatch):
     response = client.get("/inbox")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_inbox_wrong_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_inbox_wrong_token_returns_401(monkeypatch):
     response = client.get("/inbox", headers={"Authorization": "Bearer wrong-token"})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_inbox_missing_token_env_returns_500(monkeypatch):
-    monkeypatch.delenv("DEV_ADMIN_TOKEN", raising=False)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
     response = client.get("/inbox", headers=_auth_header())
     assert response.status_code == 500
 
@@ -77,7 +77,6 @@ def test_inbox_missing_token_env_returns_500(monkeypatch):
 
 
 def test_inbox_empty_db_returns_200_with_empty_list(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_supabase_mock([])
     with patch("app.routes.inbox.get_supabase_client", return_value=mock):
         response = client.get("/inbox", headers=_auth_header())
@@ -86,7 +85,6 @@ def test_inbox_empty_db_returns_200_with_empty_list(monkeypatch):
 
 
 def test_inbox_returns_items_with_correct_shape(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_supabase_mock([SAMPLE_ROW.copy()])
     with patch("app.routes.inbox.get_supabase_client", return_value=mock):
         response = client.get("/inbox", headers=_auth_header())
@@ -110,7 +108,6 @@ def test_inbox_returns_items_with_correct_shape(monkeypatch):
 
 
 def test_inbox_filters_by_pending_and_needs_manual_classification(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_supabase_mock()
     with patch("app.routes.inbox.get_supabase_client", return_value=mock):
         client.get("/inbox", headers=_auth_header())
@@ -120,7 +117,6 @@ def test_inbox_filters_by_pending_and_needs_manual_classification(monkeypatch):
 
 
 def test_inbox_orders_newest_first(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_supabase_mock()
     with patch("app.routes.inbox.get_supabase_client", return_value=mock):
         client.get("/inbox", headers=_auth_header())
@@ -135,7 +131,6 @@ def test_inbox_orders_newest_first(monkeypatch):
 
 
 def test_inbox_db_error_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = MagicMock()
     execute_mock = (
         mock.table.return_value

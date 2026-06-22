@@ -1,11 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-
-const apiUrl = () => process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
-// DEV_ADMIN_TOKEN has no NEXT_PUBLIC_ prefix — server-side only, never in the browser.
-const token = () => process.env.DEV_ADMIN_TOKEN;
+import { authedFetch } from "@/lib/api";
 
 interface ApiResult {
   ok: boolean;
@@ -18,25 +14,13 @@ async function callApi(
   method: string,
   body?: unknown
 ): Promise<ApiResult> {
-  const t = token();
-  if (!t) {
-    return { ok: false, status: 0, data: { detail: "DEV_ADMIN_TOKEN is not configured" } };
-  }
-
-  try {
-    const res = await fetch(`${apiUrl()}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${t}`,
-        "Content-Type": "application/json",
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const data = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, data };
-  } catch {
-    return { ok: false, status: 0, data: { detail: "Could not reach the backend" } };
-  }
+  const res = await authedFetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
 }
 
 export async function completeTask(id: string): Promise<ApiResult> {

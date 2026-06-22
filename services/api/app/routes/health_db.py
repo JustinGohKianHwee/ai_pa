@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
-from app.security import require_dev_admin_token
+from app.security import require_user
 
 router = APIRouter()
 
 
-@router.get("/health/db", dependencies=[Depends(require_dev_admin_token)])
+@router.get("/health/db", dependencies=[Depends(require_user)])
 def health_db() -> dict:
     try:
         client = get_supabase_client()

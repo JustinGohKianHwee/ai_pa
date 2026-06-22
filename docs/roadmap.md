@@ -112,7 +112,7 @@ inbox behavior yet.
 **What gets built:**
 - Backend-only Supabase client factory using `SUPABASE_URL` and
   `SUPABASE_SERVICE_ROLE_KEY`, created lazily with no import-time queries
-- Reusable `DEV_ADMIN_TOKEN` dependency for private development routes
+- Reusable `development bearer token` dependency for private development routes
 - Public `GET /health`, independent of Supabase configuration
 - Protected, read-only `GET /health/db` connectivity check
 - Unit tests with the Supabase client mocked; no real network calls
@@ -150,7 +150,7 @@ inbox behavior yet.
 - `inbox_items` row created with `review_status = pending` and `item_type = unknown`;
   the linked `capture_event` has `processing_status = received`
   (AI classification is still a stub in this phase)
-- `DEV_ADMIN_TOKEN` guard on all non-webhook routes (simple Bearer token check in a
+- `development bearer token` guard on all non-webhook routes (simple Bearer token check in a
   FastAPI middleware/dependency — development only, replaced by real auth in Phase 15)
 
 **What must NOT be built yet:**
@@ -160,7 +160,7 @@ inbox behavior yet.
 - Tunneling exposes routes publicly but does not bypass middleware or token checks.
   Prefer path-only exposure for `/telegram/webhook` when supported. If the full backend
   is tunneled, every non-webhook route that reads or mutates personal data must still
-  require `DEV_ADMIN_TOKEN`; the webhook validates its own Telegram secret.
+  require `development bearer token`; the webhook validates its own Telegram secret.
 
 **Definition of done:**
 - Sending a text message to the Telegram bot creates a row in `capture_events`
@@ -179,7 +179,7 @@ inbox behavior yet.
 - Each item shows: raw text, item type (stub: "unknown"), processing status, created_at
 - Basic Tailwind styling — readable but not polished
 - Frontend fetches from `GET /inbox` on the FastAPI backend, sending the
-  `DEV_ADMIN_TOKEN` as an `Authorization: Bearer` header (read from local env)
+  `development bearer token` as an `Authorization: Bearer` header (read from local env)
 
 **What must NOT be built yet:**
 - Confirm / reject buttons (Phase 7)
@@ -438,7 +438,7 @@ been verified against the user's real accounts — see the definition of done.
 **What gets built:**
 - Backend-only read-only adapters for Tiger and IBKR, behind a small normalized portfolio
   interface
-- `GET /portfolio` protected by `DEV_ADMIN_TOKEN`
+- `GET /portfolio` protected by `development bearer token`
 - Dashboard `/portfolio` page showing positions, cash, market value, unrealized P&L, today's
   P&L, broker/account source, currency, quote freshness, and last-updated time when available
 - Independent broker health/error reporting so one unavailable broker does not hide data from
@@ -539,24 +539,36 @@ Supabase so later SQL analysis and memory generation can use reliable historical
 
 ---
 
-## Phase 15 — Auth, RLS, and vector memory
+## Phase 15a — Authentication + RLS (implementation complete; manual setup pending)
 
-**Goal:** Secure the system and add semantic memory search.
+**Goal:** Replace the temporary development guard with single-owner authentication and
+lock direct database access down without changing the review-first pipeline.
 
 **What gets built:**
-- Supabase Auth integration
-- RLS policies on all tables (service role bypasses, anon/user role is restricted)
-- `memory_chunks` table with pgvector extension
-- Embeddings written for every confirmed domain record
-- `POST /memory/search` — semantic search endpoint
-- Dashboard search bar that queries memory
-
-**Note on vector memory:** Standard SQL queries cover most use cases. Add this when you
-need to ask questions across months of data, not days.
+- Supabase email/password authentication with cookie-based Next.js sessions
+- ES256 access-token verification through Supabase's public JWKS plus `OWNER_USER_ID`
+  enforcement on protected FastAPI routes
+- Service-role backend access retained behind API-layer authentication
+- Deny-by-default RLS and revoked anon/authenticated grants on all current tables and confirm RPCs
+- Migration `0008_rls_lockdown.sql`
 
 **Definition of done:**
-- All routes require authentication
-- "What did I spend money on last week?" returns relevant money_events via semantic search
+- Logged-out dashboard requests redirect to `/login`; owner login and logout work
+- Protected APIs return 401 without a valid session and 403 for a valid non-owner token
+- Anon/authenticated database access is denied while service-role backend access continues
+- Telegram capture and review-first confirmation remain unchanged
+
+## Phase 15b — Vector memory (pending)
+
+**Goal:** Add semantic memory search after authentication is verified.
+
+**What gets built:**
+- `memory_chunks` table with pgvector extension
+- Embeddings written for confirmed domain records
+- `POST /memory/search` and a dashboard search interface
+
+**Note:** Standard SQL queries cover most short-term use cases. Vector memory remains
+separate from Phase 15a and should be added only when cross-month semantic recall is useful.
 
 ---
 

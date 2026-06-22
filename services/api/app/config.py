@@ -23,8 +23,9 @@ TELEGRAM_BOT_TOKEN: str | None = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_WEBHOOK_SECRET: str | None = os.getenv("TELEGRAM_WEBHOOK_SECRET")
 TELEGRAM_USER_ID: str | None = os.getenv("TELEGRAM_USER_ID")
 
-# Development security guard — required on all non-webhook routes (Phases 4–15)
-DEV_ADMIN_TOKEN: str | None = os.getenv("DEV_ADMIN_TOKEN")
+# Supabase Auth — Phase 15a single-owner API authentication. SUPABASE_URL also
+# identifies the project's public JWKS endpoint for ES256 access-token verification.
+OWNER_USER_ID: str | None = os.getenv("OWNER_USER_ID")
 
 # Brokers — read-only portfolio (Phase 14). Backend-only; never exposed to the frontend.
 # Adapters read these at request time via os.getenv; these references are for documentation.

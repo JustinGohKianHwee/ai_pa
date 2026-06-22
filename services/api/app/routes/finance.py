@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
-from app.security import require_dev_admin_token
+from app.security import require_user
 
 router = APIRouter(tags=["finance"])
 
@@ -88,7 +88,7 @@ def _compute_totals(items: list[MoneyEventResponse]) -> list[CurrencyTotals]:
     return totals
 
 
-@router.get("/money_events", dependencies=[Depends(require_dev_admin_token)])
+@router.get("/money_events", dependencies=[Depends(require_user)])
 def list_money_events() -> MoneyEventsListResponse:
     try:
         client = get_supabase_client()

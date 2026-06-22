@@ -9,5 +9,6 @@ tzdata>=2024.1
 # tests mock the adapter boundary and never import it. IBKR uses the Client Portal Web API
 # over httpx (already listed) and needs no extra Python package.
 tigeropen>=3.0.0
+pyjwt[crypto]>=2.8.0
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

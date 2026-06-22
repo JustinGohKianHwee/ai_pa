@@ -1,22 +1,13 @@
 import Link from "next/link";
 import type { Task, TasksResponse } from "./types";
 import { TaskList } from "./TaskList";
+import { authedFetch } from "@/lib/api";
 
 // Always render at request time — never pre-render at build; requires live token + data.
 export const dynamic = "force-dynamic";
 
 async function getTasks(): Promise<Task[]> {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-  const token = process.env.DEV_ADMIN_TOKEN;
-
-  if (!token) {
-    throw new Error(
-      "DEV_ADMIN_TOKEN is not configured. Add it to apps/web/.env.local."
-    );
-  }
-
-  const res = await fetch(`${apiUrl}/tasks`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const res = await authedFetch("/tasks", {
     cache: "no-store",
   });
 

@@ -13,7 +13,9 @@ from app.main import app
 
 client = TestClient(app)
 
-VALID_TOKEN = "test-dev-admin-token-xyz"
+from tests.conftest import mint_test_token
+
+VALID_TOKEN = mint_test_token()
 TASK_ID = "task-uuid-1"
 
 OPEN_TASK = {
@@ -80,16 +82,14 @@ def _make_complete_mock(select_data: list, update_data: list | None = None) -> M
 # ---------------------------------------------------------------------------
 
 
-def test_list_tasks_missing_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_list_tasks_missing_token_returns_401(monkeypatch):
     response = client.get("/tasks")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_list_tasks_wrong_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_list_tasks_wrong_token_returns_401(monkeypatch):
     response = client.get("/tasks", headers={"Authorization": "Bearer wrong"})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,6 @@ def test_list_tasks_wrong_token_returns_403(monkeypatch):
 
 
 def test_list_tasks_empty_returns_empty_list(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([])
     with patch("app.routes.tasks.get_supabase_client", return_value=mock):
         response = client.get("/tasks", headers=_auth_header())
@@ -109,7 +108,6 @@ def test_list_tasks_empty_returns_empty_list(monkeypatch):
 
 
 def test_list_tasks_returns_shape_and_total(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([OPEN_TASK, OLDER_OPEN_TASK])
     with patch("app.routes.tasks.get_supabase_client", return_value=mock):
         response = client.get("/tasks", headers=_auth_header())
@@ -122,7 +120,6 @@ def test_list_tasks_returns_shape_and_total(monkeypatch):
 
 
 def test_list_tasks_orders_newest_first(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([OPEN_TASK, OLDER_OPEN_TASK])
     with patch("app.routes.tasks.get_supabase_client", return_value=mock):
         client.get("/tasks", headers=_auth_header())
@@ -132,7 +129,6 @@ def test_list_tasks_orders_newest_first(monkeypatch):
 
 
 def test_list_tasks_db_config_error_returns_500(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     with patch(
         "app.routes.tasks.get_supabase_client",
         side_effect=SupabaseConfigurationError("missing"),
@@ -142,7 +138,6 @@ def test_list_tasks_db_config_error_returns_500(monkeypatch):
 
 
 def test_list_tasks_query_failure_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = MagicMock()
     mock.table.return_value.select.return_value.order.return_value.execute.side_effect = Exception(
         "boom"
@@ -157,14 +152,12 @@ def test_list_tasks_query_failure_returns_503(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_complete_missing_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_complete_missing_token_returns_401(monkeypatch):
     response = client.patch(f"/tasks/{TASK_ID}/complete")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_complete_open_task_returns_200_completed(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_complete_mock(select_data=[OPEN_TASK], update_data=[COMPLETED_TASK])
     with patch("app.routes.tasks.get_supabase_client", return_value=mock):
         response = client.patch(f"/tasks/{TASK_ID}/complete", headers=_auth_header())
@@ -175,7 +168,6 @@ def test_complete_open_task_returns_200_completed(monkeypatch):
 
 
 def test_complete_already_completed_is_idempotent_200(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_complete_mock(select_data=[COMPLETED_TASK])
     with patch("app.routes.tasks.get_supabase_client", return_value=mock):
         response = client.patch(f"/tasks/{TASK_ID}/complete", headers=_auth_header())
@@ -185,7 +177,6 @@ def test_complete_already_completed_is_idempotent_200(monkeypatch):
 
 
 def test_complete_missing_task_returns_404(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_complete_mock(select_data=[])
     with patch("app.routes.tasks.get_supabase_client", return_value=mock):
         response = client.patch(f"/tasks/{TASK_ID}/complete", headers=_auth_header())
@@ -193,7 +184,6 @@ def test_complete_missing_task_returns_404(monkeypatch):
 
 
 def test_complete_db_config_error_returns_500(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     with patch(
         "app.routes.tasks.get_supabase_client",
         side_effect=SupabaseConfigurationError("missing"),
@@ -203,7 +193,6 @@ def test_complete_db_config_error_returns_500(monkeypatch):
 
 
 def test_complete_query_failure_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = MagicMock()
     mock.table.return_value.select.return_value.eq.return_value.execute.side_effect = Exception(
         "boom"

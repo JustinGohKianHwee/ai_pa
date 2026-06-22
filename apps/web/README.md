@@ -1,12 +1,13 @@
 # apps/web — Frontend Dashboard
 
-**Status: Phase 9 ✓ complete — inbox review + tasks + finance views live.**
+**Status: Phase 15a — Supabase authentication implemented; manual setup pending.**
 
 `/inbox` shows classified pending items with **Confirm / Reject / Edit** controls (Phase 7).
 `/tasks` shows confirmed tasks grouped by urgency, with a **Mark complete** action (Phase 8).
 `/finance` shows confirmed expenses with totals grouped by currency and category, read-only
-(Phase 9). All mutations go through Next.js Server Actions that hold `DEV_ADMIN_TOKEN`
-server-side — the browser never sees the token and never calls the backend or Supabase directly.
+(Phase 9). Supabase Auth stores the owner's session in cookies. Server Components and Server
+Actions forward the short-lived access token to FastAPI; the browser never receives backend
+secrets or calls the service-role database client.
 
 ## Stack
 - Next.js 15 (App Router)
@@ -25,21 +26,27 @@ becomes a permanent record. The inbox is the central screen.
 app/
   layout.tsx          — root layout
   page.tsx            — dashboard home (links to /inbox, /tasks, /finance)
+  login/page.tsx      — public email/password login
+  logout/actions.ts   — server-side sign-out action
   inbox/
     page.tsx          — Server Component: fetches GET /inbox, renders item cards
     InboxCard.tsx     — Client Component: Confirm / Reject / Edit controls
-    actions.ts        — Server Actions: confirm / reject / edit (server-only token)
+    actions.ts        — Server Actions: confirm / reject / edit (authenticated fetch)
     loading.tsx       — Suspense skeleton shown while fetching
     error.tsx         — error boundary (Client Component)
     types.ts          — TypeScript interfaces matching backend response shape
   tasks/
     page.tsx          — Server Component: fetches GET /tasks, groups by urgency
     TaskList.tsx      — Client Component: urgency groups + Mark-complete action
-    actions.ts        — Server Action: complete task (server-only token)
+    actions.ts        — Server Action: complete task (authenticated fetch)
     types.ts          — Task interfaces matching backend response shape
   finance/
     page.tsx          — Server Component: fetches GET /money_events, totals + expenses (read-only)
     types.ts          — MoneyEvent / totals interfaces matching backend response shape
+lib/
+  api.ts              — server-only authenticated FastAPI fetch helper
+  supabase/           — browser, server, and middleware cookie clients
+middleware.ts         — refreshes sessions and protects dashboard routes
 ```
 
 ## Environment variables
@@ -49,15 +56,12 @@ Create `apps/web/.env.local` (git-ignored):
 ```
 # Backend base URL — public, just a URL
 NEXT_PUBLIC_API_URL=http://localhost:8000
-
-# Development auth guard — SERVER-SIDE ONLY (no NEXT_PUBLIC_ prefix).
-# Must match DEV_ADMIN_TOKEN in services/api/.env.local exactly.
-# Temporary guard until Phase 15 (real auth). Never expose to the browser.
-DEV_ADMIN_TOKEN=<your-token-here>
+# Supabase Auth public configuration. The anon key is safe to expose; RLS denies data access.
+NEXT_PUBLIC_SUPABASE_URL=<your-project-url>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-anon-key>
 ```
 
-**`DEV_ADMIN_TOKEN` has no `NEXT_PUBLIC_` prefix** — it is only accessible in Next.js
-Server Components and API routes (server-side). It never appears in client JS bundles.
+Never add `SUPABASE_SERVICE_ROLE_KEY` or broker credentials to frontend environment files.
 
 ## How to run
 
@@ -81,18 +85,20 @@ npm run build
 ## Fetch flow (Phase 5)
 
 ```
-Browser → Next.js server (SSR)
+Browser → Supabase Auth (email/password; cookie session)
+        → Next.js server (SSR)
             → GET http://localhost:8000/inbox
-              Authorization: Bearer <DEV_ADMIN_TOKEN>   ← server-side only
+              Authorization: Bearer <Supabase access token>
             ← { items: [...], total: N }
           → renders HTML → Browser
 ```
 
-`DEV_ADMIN_TOKEN` never leaves the server. The browser only receives rendered HTML.
+Middleware refreshes the cookie session and redirects unauthenticated dashboard requests to
+`/login`. A backend 401 also redirects to `/login`. The service-role key and JWT signing secret
+never leave FastAPI.
 
 ## What is intentionally not built yet
 
-- Authentication — Phase 15
 - Domain module views beyond tasks & finance (food, calendar) — Phases 11–12
 - Task editing from the `/tasks` view, finance editing/deletion from `/finance` (edits happen
   in the inbox before confirmation)
@@ -106,3 +112,5 @@ Browser → Next.js server (SSR)
 - Phase 7: Confirm / Reject / Edit controls via Server Actions (`inbox/actions.ts`, `InboxCard.tsx`)
 - Phase 8: Tasks view (`/tasks`) — urgency groups, Mark-complete, home link
 - Phase 9: Finance view (`/finance`) — recent expenses + totals by currency/category (read-only), home link
+- Phase 15a: Supabase email/password login, session-refresh middleware, authenticated backend
+  fetches, and logout.

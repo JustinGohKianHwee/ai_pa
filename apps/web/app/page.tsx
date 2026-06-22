@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { logout } from "./logout/actions";
 
 export default function Home() {
   const pipeline = [
@@ -25,6 +26,14 @@ export default function Home() {
           <p className="text-gray-500 text-sm">
             Private review-first personal operating system.
           </p>
+          <form action={logout} className="mt-5">
+            <button
+              type="submit"
+              className="text-sm text-gray-500 hover:text-gray-900"
+            >
+              Logout
+            </button>
+          </form>
         </div>
 
         <Link

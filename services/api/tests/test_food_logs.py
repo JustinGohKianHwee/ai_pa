@@ -17,7 +17,9 @@ from app.main import app
 
 client = TestClient(app)
 
-VALID_TOKEN = "test-dev-admin-token-xyz"
+from tests.conftest import mint_test_token
+
+VALID_TOKEN = mint_test_token()
 
 FOOD_LOG_ROW = {
     "id": "food-log-uuid-1",
@@ -73,16 +75,14 @@ def _make_today_list_mock(data: list) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-def test_auth_missing_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_auth_missing_token_returns_401(monkeypatch):
     response = client.get("/food_logs")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_auth_wrong_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_auth_wrong_token_returns_401(monkeypatch):
     response = client.get("/food_logs", headers={"Authorization": "Bearer wrong"})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +91,6 @@ def test_auth_wrong_token_returns_403(monkeypatch):
 
 
 def test_empty_list_returns_empty(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([])
     with patch("app.routes.food.get_supabase_client", return_value=mock):
         response = client.get("/food_logs", headers=_auth_header())
@@ -100,7 +99,6 @@ def test_empty_list_returns_empty(monkeypatch):
 
 
 def test_returns_correct_shape_and_total(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([FOOD_LOG_ROW, FOOD_LOG_ROW_2])
     with patch("app.routes.food.get_supabase_client", return_value=mock):
         response = client.get("/food_logs", headers=_auth_header())
@@ -114,7 +112,6 @@ def test_returns_correct_shape_and_total(monkeypatch):
 
 
 def test_orders_newest_first(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([FOOD_LOG_ROW])
     with patch("app.routes.food.get_supabase_client", return_value=mock):
         client.get("/food_logs", headers=_auth_header())
@@ -130,7 +127,6 @@ def test_orders_newest_first(monkeypatch):
 
 def test_today_filter_applies_sgt_midnight_boundaries_in_utc(monkeypatch):
     """?date=today with USER_TIMEZONE=Asia/Singapore: .gte and .lt use SGT-midnight → UTC."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
 
     # Fixed "now" = 2026-06-22 14:30:00 SGT (UTC+8).
@@ -162,7 +158,6 @@ def test_today_filter_applies_sgt_midnight_boundaries_in_utc(monkeypatch):
 
 def test_no_date_param_skips_filter(monkeypatch):
     """No date param → no .gte or .lt; all logs returned."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([FOOD_LOG_ROW])
     with patch("app.routes.food.get_supabase_client", return_value=mock):
         response = client.get("/food_logs", headers=_auth_header())
@@ -172,7 +167,6 @@ def test_no_date_param_skips_filter(monkeypatch):
 
 def test_unsupported_date_param_returns_422(monkeypatch):
     """`?date=yesterday` is rejected with 422 — no DB query is made."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     response = client.get("/food_logs?date=yesterday", headers=_auth_header())
     assert response.status_code == 422
     assert "today" in response.json()["detail"].lower()
@@ -184,7 +178,6 @@ def test_unsupported_date_param_returns_422(monkeypatch):
 
 
 def test_null_meal_type_survives_roundtrip(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     row = {**FOOD_LOG_ROW, "meal_type": None}
     mock = _make_list_mock([row])
     with patch("app.routes.food.get_supabase_client", return_value=mock):
@@ -194,7 +187,6 @@ def test_null_meal_type_survives_roundtrip(monkeypatch):
 
 
 def test_null_logged_at_survives_roundtrip(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     row = {**FOOD_LOG_ROW, "logged_at": None}
     mock = _make_list_mock([row])
     with patch("app.routes.food.get_supabase_client", return_value=mock):
@@ -209,7 +201,6 @@ def test_null_logged_at_survives_roundtrip(monkeypatch):
 
 
 def test_db_config_error_returns_500(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     with patch(
         "app.routes.food.get_supabase_client",
         side_effect=SupabaseConfigurationError("missing key"),
@@ -219,7 +210,6 @@ def test_db_config_error_returns_500(monkeypatch):
 
 
 def test_query_failure_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = MagicMock()
     mock.table.return_value.select.return_value.order.return_value.execute.side_effect = (
         Exception("connection refused")

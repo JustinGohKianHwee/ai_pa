@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
-from app.security import require_dev_admin_token
+from app.security import require_user
 
 router = APIRouter(tags=["daily_review"])
 
@@ -127,7 +127,7 @@ def _build_summary(
     return ". ".join(parts).capitalize() + "."
 
 
-@router.get("/daily_review", dependencies=[Depends(require_dev_admin_token)])
+@router.get("/daily_review", dependencies=[Depends(require_user)])
 def get_daily_review(
     date: Optional[str] = Query(default=None),
 ) -> DailyReviewResponse:

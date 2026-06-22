@@ -9,21 +9,12 @@ import type {
   Position,
   Portfolio,
 } from "./types";
+import { authedFetch } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
 async function getPortfolio(): Promise<Portfolio> {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-  const token = process.env.DEV_ADMIN_TOKEN;
-
-  if (!token) {
-    throw new Error(
-      "DEV_ADMIN_TOKEN is not configured. Add it to apps/web/.env.local."
-    );
-  }
-
-  const res = await fetch(`${apiUrl}/portfolio`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const res = await authedFetch("/portfolio", {
     cache: "no-store",
   });
 

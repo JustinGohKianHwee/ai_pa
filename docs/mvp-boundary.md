@@ -69,7 +69,6 @@ These features are valid long-term goals. They are not in the MVP.
 | Journal entries | Requires journal table or notes schema |
 | Daily / weekly review | Requires sufficient data to aggregate |
 | Vector memory / semantic search | Only useful with months of data |
-| Authentication / RLS | No other users; single-user dev is sufficient |
 | Deployment (Vercel + Render) | Local development is sufficient until Phase 15+ |
 | Google Calendar sync | Requires OAuth, conflict detection, irreversible action UX |
 | Morning briefing (Telegram push) | Requires cron jobs and stable production |
@@ -87,17 +86,15 @@ These features are valid long-term goals. They are not in the MVP.
 These are things that might seem useful but would actively harm the project at this stage.
 
 **Authentication before the loop works.**
-Auth adds complexity to every route and every test. The system is single-user and runs
-locally. There is no threat model that requires auth before Phase 15.
+Auth was intentionally deferred until the review-first loop was proven. Phase 15a now adds
+single-owner authentication without introducing multi-user ownership or changing the loop.
 
-**Exposing the full backend without a development guard.**
+**Exposing the full backend without authentication.**
 The backend holds a Supabase service-role key with write access to all personal data.
-Until Phase 15 (auth/RLS), all non-webhook routes must require a `DEV_ADMIN_TOKEN`
-Bearer token check. Tunneling makes routes public but does not bypass that guard. Prefer
-path-only webhook exposure when supported; if the full backend is tunneled, the guard
-remains mandatory on every non-webhook route that reads or mutates personal data. The
-Telegram webhook validates its own secret, and the frontend never receives
-`SUPABASE_SERVICE_ROLE_KEY`.
+All non-webhook protected routes require a valid Supabase JWT whose subject matches the
+configured owner. Tunneling does not bypass this check. The Telegram webhook validates its
+own secret, RLS denies direct anon/authenticated access, and the frontend never receives the
+JWT signing secret or `SUPABASE_SERVICE_ROLE_KEY`.
 
 **Multi-user support.**
 This tool is built for one person. Every design decision should assume a single user.

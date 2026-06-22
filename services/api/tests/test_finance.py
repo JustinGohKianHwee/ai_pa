@@ -15,7 +15,9 @@ from app.main import app
 
 client = TestClient(app)
 
-VALID_TOKEN = "test-dev-admin-token-xyz"
+from tests.conftest import mint_test_token
+
+VALID_TOKEN = mint_test_token()
 
 SGD_FOOD = {
     "id": "evt-1",
@@ -75,16 +77,14 @@ def _make_list_mock(data: list) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-def test_list_money_events_missing_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_list_money_events_missing_token_returns_401(monkeypatch):
     response = client.get("/money_events")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_list_money_events_wrong_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_list_money_events_wrong_token_returns_401(monkeypatch):
     response = client.get("/money_events", headers={"Authorization": "Bearer wrong"})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +93,6 @@ def test_list_money_events_wrong_token_returns_403(monkeypatch):
 
 
 def test_list_money_events_empty_returns_empty(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([])
     with patch("app.routes.finance.get_supabase_client", return_value=mock):
         response = client.get("/money_events", headers=_auth_header())
@@ -105,7 +104,6 @@ def test_list_money_events_empty_returns_empty(monkeypatch):
 
 
 def test_list_money_events_returns_shape_and_total(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([SGD_FOOD, SGD_TRANSPORT])
     with patch("app.routes.finance.get_supabase_client", return_value=mock):
         response = client.get("/money_events", headers=_auth_header())
@@ -120,7 +118,6 @@ def test_list_money_events_returns_shape_and_total(monkeypatch):
 
 
 def test_list_money_events_orders_newest_first(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([SGD_FOOD, SGD_TRANSPORT])
     with patch("app.routes.finance.get_supabase_client", return_value=mock):
         client.get("/money_events", headers=_auth_header())
@@ -135,7 +132,6 @@ def test_list_money_events_orders_newest_first(monkeypatch):
 
 
 def test_totals_grouped_by_currency_and_category(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([SGD_FOOD, SGD_TRANSPORT, USD_UNCATEGORIZED])
     with patch("app.routes.finance.get_supabase_client", return_value=mock):
         response = client.get("/money_events", headers=_auth_header())
@@ -148,7 +144,6 @@ def test_totals_grouped_by_currency_and_category(monkeypatch):
 
 
 def test_totals_never_combine_currencies(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([SGD_FOOD, USD_UNCATEGORIZED])
     with patch("app.routes.finance.get_supabase_client", return_value=mock):
         response = client.get("/money_events", headers=_auth_header())
@@ -159,7 +154,6 @@ def test_totals_never_combine_currencies(monkeypatch):
 
 
 def test_totals_null_category_folds_to_uncategorized(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([USD_UNCATEGORIZED])
     with patch("app.routes.finance.get_supabase_client", return_value=mock):
         response = client.get("/money_events", headers=_auth_header())
@@ -170,7 +164,6 @@ def test_totals_null_category_folds_to_uncategorized(monkeypatch):
 
 def test_totals_use_decimal_arithmetic(monkeypatch):
     """0.10 + 0.20 must equal 0.30 exactly — Decimal arithmetic, not binary float (0.30000…04)."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     e1 = {**SGD_FOOD, "id": "d1", "amount": 0.10, "category": "food"}
     e2 = {**SGD_FOOD, "id": "d2", "amount": 0.20, "category": "food"}
     mock = _make_list_mock([e1, e2])
@@ -188,7 +181,6 @@ def test_totals_use_decimal_arithmetic(monkeypatch):
 
 def test_income_excluded_from_items_via_db_filter(monkeypatch):
     """The query filters direction='expense' at the database, so income never reaches items."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([SGD_FOOD])
     with patch("app.routes.finance.get_supabase_client", return_value=mock):
         client.get("/money_events", headers=_auth_header())
@@ -199,7 +191,6 @@ def test_income_excluded_from_items_via_db_filter(monkeypatch):
 
 def test_income_row_excluded_from_totals(monkeypatch):
     """Even if an income row were returned, it is never added into any total."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     income = {
         **SGD_FOOD,
         "id": "evt-income",
@@ -221,7 +212,6 @@ def test_income_row_excluded_from_totals(monkeypatch):
 
 
 def test_list_money_events_db_config_error_returns_500(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     with patch(
         "app.routes.finance.get_supabase_client",
         side_effect=SupabaseConfigurationError("missing"),
@@ -231,7 +221,6 @@ def test_list_money_events_db_config_error_returns_500(monkeypatch):
 
 
 def test_list_money_events_query_failure_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = MagicMock()
     mock.table.return_value.select.return_value.eq.return_value.order.return_value.execute.side_effect = Exception(
         "boom"

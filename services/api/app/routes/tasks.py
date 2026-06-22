@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
-from app.security import require_dev_admin_token
+from app.security import require_user
 
 router = APIRouter(tags=["tasks"])
 
@@ -39,7 +39,7 @@ class TasksListResponse(BaseModel):
     total: int
 
 
-@router.get("/tasks", dependencies=[Depends(require_dev_admin_token)])
+@router.get("/tasks", dependencies=[Depends(require_user)])
 def list_tasks() -> TasksListResponse:
     try:
         client = get_supabase_client()
@@ -60,7 +60,7 @@ def list_tasks() -> TasksListResponse:
     return TasksListResponse(items=items, total=len(items))
 
 
-@router.patch("/tasks/{task_id}/complete", dependencies=[Depends(require_dev_admin_token)])
+@router.patch("/tasks/{task_id}/complete", dependencies=[Depends(require_user)])
 def complete_task(task_id: str) -> TaskResponse:
     try:
         client = get_supabase_client()

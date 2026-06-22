@@ -14,7 +14,9 @@ from app.main import app
 
 client = TestClient(app)
 
-VALID_TOKEN = "test-dev-admin-token-xyz"
+from tests.conftest import mint_test_token
+
+VALID_TOKEN = mint_test_token()
 INBOX_ID = "inbox-uuid-phase7"
 
 # ---------------------------------------------------------------------------
@@ -163,18 +165,16 @@ def _make_edit_concurrent_mock(first_fetch: list, second_fetch: list) -> MagicMo
 # ---------------------------------------------------------------------------
 
 
-def test_confirm_missing_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_confirm_missing_token_returns_401(monkeypatch):
     response = client.patch(f"/inbox/{INBOX_ID}/confirm")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_confirm_wrong_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_confirm_wrong_token_returns_401(monkeypatch):
     response = client.patch(
         f"/inbox/{INBOX_ID}/confirm", headers={"Authorization": "Bearer wrong-token"}
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +183,6 @@ def test_confirm_wrong_token_returns_403(monkeypatch):
 
 
 def test_confirm_missing_item_returns_404(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_confirm_mock(fetch_data=[], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
@@ -197,7 +196,6 @@ def test_confirm_missing_item_returns_404(monkeypatch):
 
 def test_confirm_income_item_status_only_returns_200(monkeypatch):
     """A non-module item (finance income) confirms status-only — no domain record."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_confirm_mock(
         fetch_data=[PENDING_INCOME_ROW], update_data=[CONFIRMED_INCOME_ROW]
     )
@@ -212,7 +210,6 @@ def test_confirm_income_item_status_only_returns_200(monkeypatch):
 
 
 def test_confirm_sets_reviewed_at(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_confirm_mock(
         fetch_data=[PENDING_INCOME_ROW], update_data=[CONFIRMED_INCOME_ROW]
     )
@@ -224,7 +221,6 @@ def test_confirm_sets_reviewed_at(monkeypatch):
 
 def test_confirm_stores_normalized_structured_json(monkeypatch):
     """Status-only confirm stores the Pydantic-normalized form so currency='SGD' is persisted."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     row_no_currency = {
         **PENDING_INCOME_ROW,
         "structured_json": {"amount": 3000.0, "direction": "income"},  # missing currency
@@ -248,7 +244,6 @@ def test_confirm_stores_normalized_structured_json(monkeypatch):
 
 
 def test_confirm_unknown_item_type_returns_400(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_confirm_mock(fetch_data=[PENDING_UNKNOWN_ROW], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
@@ -257,7 +252,6 @@ def test_confirm_unknown_item_type_returns_400(monkeypatch):
 
 
 def test_confirm_needs_manual_returns_409(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_confirm_mock(fetch_data=[NEEDS_MANUAL_ROW], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
@@ -265,7 +259,6 @@ def test_confirm_needs_manual_returns_409(monkeypatch):
 
 
 def test_confirm_rejected_item_returns_409(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_confirm_mock(fetch_data=[REJECTED_ROW], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
@@ -278,7 +271,6 @@ def test_confirm_rejected_item_returns_409(monkeypatch):
 
 
 def test_confirm_already_confirmed_is_idempotent_200(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_confirm_mock(fetch_data=[CONFIRMED_INCOME_ROW], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
@@ -291,7 +283,6 @@ def test_confirm_concurrent_modification_treated_as_idempotent(monkeypatch):
     If the conditional update (guarded by updated_at) returns 0 rows but a refetch
     shows the item is already confirmed, return 200 rather than 409.
     """
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_confirm_concurrent_mock(
         first_fetch=[PENDING_INCOME_ROW],
         second_fetch=[CONFIRMED_INCOME_ROW],
@@ -304,7 +295,6 @@ def test_confirm_concurrent_modification_treated_as_idempotent(monkeypatch):
 
 def test_confirm_creates_no_domain_record(monkeypatch):
     """Status-only confirm touches only inbox_items — never a domain table or the RPC."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_confirm_mock(
         fetch_data=[PENDING_INCOME_ROW], update_data=[CONFIRMED_INCOME_ROW]
     )
@@ -322,7 +312,6 @@ def test_confirm_creates_no_domain_record(monkeypatch):
 
 
 def test_confirm_db_config_error_returns_500(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     with patch(
         "app.routes.review.get_supabase_client",
         side_effect=SupabaseConfigurationError("missing key"),
@@ -332,7 +321,6 @@ def test_confirm_db_config_error_returns_500(monkeypatch):
 
 
 def test_confirm_db_query_failure_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = MagicMock()
     mock.table.return_value.select.return_value.eq.return_value.execute.side_effect = Exception(
         "connection refused"
@@ -347,22 +335,19 @@ def test_confirm_db_query_failure_returns_503(monkeypatch):
 # ===========================================================================
 
 
-def test_reject_missing_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_reject_missing_token_returns_401(monkeypatch):
     response = client.patch(f"/inbox/{INBOX_ID}/reject")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_reject_wrong_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_reject_wrong_token_returns_401(monkeypatch):
     response = client.patch(
         f"/inbox/{INBOX_ID}/reject", headers={"Authorization": "Bearer wrong-token"}
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_reject_pending_item_returns_200_rejected(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_reject_edit_mock(fetch_data=[PENDING_FINANCE_ROW], update_data=[REJECTED_ROW])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/reject", headers=_auth_header())
@@ -371,7 +356,6 @@ def test_reject_pending_item_returns_200_rejected(monkeypatch):
 
 
 def test_reject_needs_manual_item_returns_200_rejected(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     needs_manual_rejected = {**REJECTED_ROW, "item_type": "unknown", "structured_json": {}}
     mock = _make_reject_edit_mock(
         fetch_data=[NEEDS_MANUAL_ROW], update_data=[needs_manual_rejected]
@@ -383,7 +367,6 @@ def test_reject_needs_manual_item_returns_200_rejected(monkeypatch):
 
 
 def test_reject_already_rejected_is_idempotent_200(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_reject_edit_mock(fetch_data=[REJECTED_ROW], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/reject", headers=_auth_header())
@@ -392,7 +375,6 @@ def test_reject_already_rejected_is_idempotent_200(monkeypatch):
 
 
 def test_reject_confirmed_item_returns_409(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_reject_edit_mock(fetch_data=[CONFIRMED_ROW], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/reject", headers=_auth_header())
@@ -400,7 +382,6 @@ def test_reject_confirmed_item_returns_409(monkeypatch):
 
 
 def test_reject_missing_item_returns_404(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_reject_edit_mock(fetch_data=[], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/reject", headers=_auth_header())
@@ -408,7 +389,6 @@ def test_reject_missing_item_returns_404(monkeypatch):
 
 
 def test_reject_db_config_error_returns_500(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     with patch(
         "app.routes.review.get_supabase_client",
         side_effect=SupabaseConfigurationError("missing"),
@@ -422,24 +402,21 @@ def test_reject_db_config_error_returns_500(monkeypatch):
 # ===========================================================================
 
 
-def test_edit_missing_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_edit_missing_token_returns_401(monkeypatch):
     response = client.patch(f"/inbox/{INBOX_ID}", json={"title": "Updated"})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_edit_wrong_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_edit_wrong_token_returns_401(monkeypatch):
     response = client.patch(
         f"/inbox/{INBOX_ID}",
         json={"title": "Updated"},
         headers={"Authorization": "Bearer wrong-token"},
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_edit_pending_item_returns_200(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     updated_row = {**PENDING_FINANCE_ROW, "title": "Updated title"}
     mock = _make_reject_edit_mock(fetch_data=[PENDING_FINANCE_ROW], update_data=[updated_row])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
@@ -453,7 +430,6 @@ def test_edit_pending_item_returns_200(monkeypatch):
 
 
 def test_edit_confirmed_item_returns_409(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_reject_edit_mock(fetch_data=[CONFIRMED_ROW], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(
@@ -463,7 +439,6 @@ def test_edit_confirmed_item_returns_409(monkeypatch):
 
 
 def test_edit_rejected_item_returns_409(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_reject_edit_mock(fetch_data=[REJECTED_ROW], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(
@@ -473,7 +448,6 @@ def test_edit_rejected_item_returns_409(monkeypatch):
 
 
 def test_edit_invalid_item_type_returns_400(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_reject_edit_mock(fetch_data=[PENDING_FINANCE_ROW], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(
@@ -486,7 +460,6 @@ def test_edit_invalid_item_type_returns_400(monkeypatch):
 
 
 def test_edit_invalid_structured_json_returns_400(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_reject_edit_mock(fetch_data=[PENDING_FINANCE_ROW], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(
@@ -500,7 +473,6 @@ def test_edit_invalid_structured_json_returns_400(monkeypatch):
 
 def test_edit_needs_manual_with_valid_type_returns_pending(monkeypatch):
     """Correcting a needs_manual item to a valid type clears it to pending."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     corrected_row = {
         **NEEDS_MANUAL_ROW,
         "item_type": "finance",
@@ -528,7 +500,6 @@ def test_edit_setting_unknown_type_remains_needs_manual(monkeypatch):
     Setting item_type='unknown' (on a pending item) must produce needs_manual_classification,
     never pending. This prevents accidentally re-introducing a confirmable unknown item.
     """
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     needs_manual_result = {**PENDING_FINANCE_ROW, "item_type": "unknown", "review_status": "needs_manual_classification", "structured_json": {}}
     mock = _make_reject_edit_mock(fetch_data=[PENDING_FINANCE_ROW], update_data=[needs_manual_result])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
@@ -544,7 +515,6 @@ def test_edit_setting_unknown_type_remains_needs_manual(monkeypatch):
 
 def test_edit_stores_normalized_structured_json(monkeypatch):
     """Edit must persist normalized JSON so defaults like currency='SGD' are retained."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     updated_row = {
         **PENDING_FINANCE_ROW,
         "structured_json": {"amount": 20.0, "direction": "expense", "currency": "SGD"},
@@ -566,7 +536,6 @@ def test_edit_state_conditional_update_blocks_confirmed_race(monkeypatch):
     If a concurrent confirm/reject lands between our fetch and our update,
     the state-conditional .in_() guard returns 0 rows. We refetch and return 409.
     """
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_edit_concurrent_mock(
         first_fetch=[PENDING_FINANCE_ROW],
         second_fetch=[CONFIRMED_ROW],
@@ -582,7 +551,6 @@ def test_edit_state_conditional_update_blocks_confirmed_race(monkeypatch):
 
 def test_edit_does_not_call_openai(monkeypatch):
     """Edit never calls OpenAI — OPENAI_API_KEY absent must not affect the result."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     updated_row = {**PENDING_FINANCE_ROW, "title": "New title"}
     mock = _make_reject_edit_mock(fetch_data=[PENDING_FINANCE_ROW], update_data=[updated_row])
@@ -596,7 +564,6 @@ def test_edit_does_not_call_openai(monkeypatch):
 
 
 def test_edit_db_config_error_returns_500(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     with patch(
         "app.routes.review.get_supabase_client",
         side_effect=SupabaseConfigurationError("missing"),
@@ -683,7 +650,6 @@ def _make_task_confirm_mock(
 
 
 def test_confirm_pending_task_creates_task_and_confirms(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_task_confirm_mock(inbox_results=[[PENDING_TASK_ROW]], rpc_result=RPC_RESULT)
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
@@ -699,7 +665,6 @@ def test_confirm_pending_task_creates_task_and_confirms(monkeypatch):
 
 
 def test_confirm_task_records_reviewed_at(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_task_confirm_mock(inbox_results=[[PENDING_TASK_ROW]], rpc_result=RPC_RESULT)
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
@@ -708,7 +673,6 @@ def test_confirm_task_records_reviewed_at(monkeypatch):
 
 
 def test_confirm_task_links_correct_inbox_item_id(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_task_confirm_mock(inbox_results=[[PENDING_TASK_ROW]], rpc_result=RPC_RESULT)
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
@@ -717,7 +681,6 @@ def test_confirm_task_links_correct_inbox_item_id(monkeypatch):
 
 def test_confirm_task_duplicate_returns_same_task(monkeypatch):
     """Confirming an already-confirmed task returns the existing task without a new RPC."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_task_confirm_mock(
         inbox_results=[[CONFIRMED_TASK_ITEM]], tasks_results=[[TASK_ROW]]
     )
@@ -733,7 +696,6 @@ def test_confirm_task_concurrent_creates_at_most_one(monkeypatch):
     If the RPC raises mid-race but the item ends up confirmed with a task,
     the result is idempotent success — no second task.
     """
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_task_confirm_mock(
         inbox_results=[[PENDING_TASK_ROW], [CONFIRMED_TASK_ITEM]],
         tasks_results=[[TASK_ROW]],
@@ -748,7 +710,6 @@ def test_confirm_task_concurrent_creates_at_most_one(monkeypatch):
 def test_confirm_task_rpc_failure_unchanged_pending_returns_503(monkeypatch):
     """RPC raised, item still pending with the same updated_at and no task → nothing
     committed → 503 (a database failure, not a concurrency conflict)."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_task_confirm_mock(
         inbox_results=[[PENDING_TASK_ROW], [PENDING_TASK_ROW]],
         tasks_results=[[]],
@@ -764,7 +725,6 @@ def test_confirm_task_rpc_failure_unchanged_pending_returns_503(monkeypatch):
 def test_confirm_task_rpc_exception_with_changed_state_returns_409(monkeypatch):
     """RPC raised and the inbox row changed from the validated snapshot (updated_at
     moved) with no task → another writer won the race → 409."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     changed = {**PENDING_TASK_ROW, "updated_at": "2024-01-01T13:30:00+00:00"}
     mock = _make_task_confirm_mock(
         inbox_results=[[PENDING_TASK_ROW], [changed]],
@@ -778,7 +738,6 @@ def test_confirm_task_rpc_exception_with_changed_state_returns_409(monkeypatch):
 
 def test_confirm_task_does_not_insert_task_in_python(monkeypatch):
     """The task is created only by the RPC — never by a Python .insert on the tasks table."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_task_confirm_mock(inbox_results=[[PENDING_TASK_ROW]], rpc_result=RPC_RESULT)
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
@@ -790,7 +749,6 @@ def test_confirm_task_does_not_insert_task_in_python(monkeypatch):
 
 def test_confirm_already_confirmed_task_without_task_not_backfilled(monkeypatch):
     """A Phase 7 task item confirmed before the tasks table existed is not backfilled."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_task_confirm_mock(
         inbox_results=[[CONFIRMED_TASK_ITEM]], tasks_results=[[]]
     )
@@ -801,7 +759,6 @@ def test_confirm_already_confirmed_task_without_task_not_backfilled(monkeypatch)
 
 
 def test_confirm_task_invalid_structured_json_creates_no_task(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     bad_item = {**PENDING_TASK_ROW, "structured_json": {"urgency": "asap"}}  # invalid literal
     mock = _make_task_confirm_mock(inbox_results=[[bad_item]])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
@@ -811,7 +768,6 @@ def test_confirm_task_invalid_structured_json_creates_no_task(monkeypatch):
 
 
 def test_confirm_task_missing_title_creates_no_task(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     no_title = {**PENDING_TASK_ROW, "title": "", "structured_json": {"urgency": "today"}}
     mock = _make_task_confirm_mock(inbox_results=[[no_title]])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
@@ -821,7 +777,6 @@ def test_confirm_task_missing_title_creates_no_task(monkeypatch):
 
 
 def test_confirm_rejected_task_creates_no_task(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     rejected_task = {
         **PENDING_TASK_ROW,
         "review_status": "rejected",
@@ -835,7 +790,6 @@ def test_confirm_rejected_task_creates_no_task(monkeypatch):
 
 
 def test_confirm_task_touches_no_other_domain_tables(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_task_confirm_mock(inbox_results=[[PENDING_TASK_ROW]], rpc_result=RPC_RESULT)
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
@@ -900,7 +854,6 @@ def _make_finance_confirm_mock(
 
 
 def test_confirm_pending_expense_creates_money_event_and_confirms(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_finance_confirm_mock(
         inbox_results=[[PENDING_FINANCE_ROW]], rpc_result=FINANCE_RPC_RESULT
     )
@@ -917,7 +870,6 @@ def test_confirm_pending_expense_creates_money_event_and_confirms(monkeypatch):
 
 
 def test_confirm_expense_records_reviewed_at(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_finance_confirm_mock(
         inbox_results=[[PENDING_FINANCE_ROW]], rpc_result=FINANCE_RPC_RESULT
     )
@@ -927,7 +879,6 @@ def test_confirm_expense_records_reviewed_at(monkeypatch):
 
 
 def test_confirm_expense_links_correct_inbox_item_id(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_finance_confirm_mock(
         inbox_results=[[PENDING_FINANCE_ROW]], rpc_result=FINANCE_RPC_RESULT
     )
@@ -937,7 +888,6 @@ def test_confirm_expense_links_correct_inbox_item_id(monkeypatch):
 
 
 def test_confirm_expense_duplicate_returns_same_event(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_finance_confirm_mock(
         inbox_results=[[CONFIRMED_ROW]], money_results=[[MONEY_EVENT_ROW]]
     )
@@ -949,7 +899,6 @@ def test_confirm_expense_duplicate_returns_same_event(monkeypatch):
 
 
 def test_confirm_expense_concurrent_creates_at_most_one(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_finance_confirm_mock(
         inbox_results=[[PENDING_FINANCE_ROW], [CONFIRMED_ROW]],
         money_results=[[MONEY_EVENT_ROW]],
@@ -962,7 +911,6 @@ def test_confirm_expense_concurrent_creates_at_most_one(monkeypatch):
 
 
 def test_confirm_expense_rpc_failure_unchanged_pending_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_finance_confirm_mock(
         inbox_results=[[PENDING_FINANCE_ROW], [PENDING_FINANCE_ROW]],
         money_results=[[]],
@@ -975,7 +923,6 @@ def test_confirm_expense_rpc_failure_unchanged_pending_returns_503(monkeypatch):
 
 
 def test_confirm_expense_rpc_exception_with_changed_state_returns_409(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     changed = {**PENDING_FINANCE_ROW, "updated_at": "2024-01-01T13:30:00+00:00"}
     mock = _make_finance_confirm_mock(
         inbox_results=[[PENDING_FINANCE_ROW], [changed]],
@@ -989,7 +936,6 @@ def test_confirm_expense_rpc_exception_with_changed_state_returns_409(monkeypatc
 
 def test_confirm_already_confirmed_expense_without_event_not_backfilled(monkeypatch):
     """A finance expense confirmed before the money_events module existed is not backfilled."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_finance_confirm_mock(
         inbox_results=[[CONFIRMED_ROW]], money_results=[[]]
     )
@@ -1000,7 +946,6 @@ def test_confirm_already_confirmed_expense_without_event_not_backfilled(monkeypa
 
 
 def test_confirm_expense_invalid_structured_json_creates_no_event(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     bad = {**PENDING_FINANCE_ROW, "structured_json": {"currency": "SGD", "direction": "expense"}}
     mock = _make_finance_confirm_mock(inbox_results=[[bad]])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
@@ -1010,7 +955,6 @@ def test_confirm_expense_invalid_structured_json_creates_no_event(monkeypatch):
 
 
 def test_confirm_expense_zero_amount_creates_no_event(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     zero = {
         **PENDING_FINANCE_ROW,
         "structured_json": {"amount": 0, "currency": "SGD", "direction": "expense"},
@@ -1024,7 +968,6 @@ def test_confirm_expense_zero_amount_creates_no_event(monkeypatch):
 
 def test_confirm_finance_invalid_direction_returns_400(monkeypatch):
     """An invalid direction is not 'expense', so it routes to status-only, which rejects it."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     bad = {**PENDING_FINANCE_ROW, "structured_json": {"amount": 12.0, "currency": "SGD", "direction": "refund"}}
     mock = _make_confirm_mock(fetch_data=[bad], update_data=[])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
@@ -1035,7 +978,6 @@ def test_confirm_finance_invalid_direction_returns_400(monkeypatch):
 
 def test_confirm_expense_does_not_insert_in_python(monkeypatch):
     """The money_event is created only by the RPC — never by a Python .insert."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_finance_confirm_mock(
         inbox_results=[[PENDING_FINANCE_ROW]], rpc_result=FINANCE_RPC_RESULT
     )
@@ -1048,7 +990,6 @@ def test_confirm_expense_does_not_insert_in_python(monkeypatch):
 
 
 def test_confirm_expense_touches_no_other_domain_tables(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_finance_confirm_mock(
         inbox_results=[[PENDING_FINANCE_ROW]], rpc_result=FINANCE_RPC_RESULT
     )
@@ -1061,7 +1002,6 @@ def test_confirm_expense_touches_no_other_domain_tables(monkeypatch):
 
 def test_confirm_task_path_unchanged_by_finance(monkeypatch):
     """Task confirmation still routes to confirm_task_item, not the finance RPC."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_task_confirm_mock(inbox_results=[[PENDING_TASK_ROW]], rpc_result=RPC_RESULT)
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
@@ -1139,7 +1079,6 @@ def _make_food_confirm_mock(
 
 
 def test_confirm_pending_food_creates_food_log_and_confirms(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_food_confirm_mock(
         inbox_results=[[PENDING_FOOD_ROW]], rpc_result=FOOD_RPC_RESULT
     )
@@ -1156,7 +1095,6 @@ def test_confirm_pending_food_creates_food_log_and_confirms(monkeypatch):
 
 
 def test_confirm_food_records_reviewed_at(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_food_confirm_mock(
         inbox_results=[[PENDING_FOOD_ROW]], rpc_result=FOOD_RPC_RESULT
     )
@@ -1166,7 +1104,6 @@ def test_confirm_food_records_reviewed_at(monkeypatch):
 
 
 def test_confirm_food_links_correct_inbox_item_id(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_food_confirm_mock(
         inbox_results=[[PENDING_FOOD_ROW]], rpc_result=FOOD_RPC_RESULT
     )
@@ -1177,7 +1114,6 @@ def test_confirm_food_links_correct_inbox_item_id(monkeypatch):
 
 def test_confirm_food_duplicate_returns_same_log(monkeypatch):
     """Confirming an already-confirmed food item returns the existing log without a new RPC."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_food_confirm_mock(
         inbox_results=[[CONFIRMED_FOOD_ITEM]], food_log_results=[[FOOD_LOG_ROW]]
     )
@@ -1190,7 +1126,6 @@ def test_confirm_food_duplicate_returns_same_log(monkeypatch):
 
 def test_confirm_food_concurrent_creates_at_most_one(monkeypatch):
     """If the RPC raises mid-race but the item ends up confirmed with a log, return 200."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_food_confirm_mock(
         inbox_results=[[PENDING_FOOD_ROW], [CONFIRMED_FOOD_ITEM]],
         food_log_results=[[FOOD_LOG_ROW]],
@@ -1204,7 +1139,6 @@ def test_confirm_food_concurrent_creates_at_most_one(monkeypatch):
 
 def test_confirm_food_rpc_failure_unchanged_pending_returns_503(monkeypatch):
     """RPC raised, item still pending with same updated_at and no log → 503."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_food_confirm_mock(
         inbox_results=[[PENDING_FOOD_ROW], [PENDING_FOOD_ROW]],
         food_log_results=[[]],
@@ -1218,7 +1152,6 @@ def test_confirm_food_rpc_failure_unchanged_pending_returns_503(monkeypatch):
 
 def test_confirm_food_rpc_exception_with_changed_state_returns_409(monkeypatch):
     """RPC raised and updated_at changed → another writer won → 409."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     changed = {**PENDING_FOOD_ROW, "updated_at": "2024-01-01T13:30:00+00:00"}
     mock = _make_food_confirm_mock(
         inbox_results=[[PENDING_FOOD_ROW], [changed]],
@@ -1232,7 +1165,6 @@ def test_confirm_food_rpc_exception_with_changed_state_returns_409(monkeypatch):
 
 def test_confirm_already_confirmed_food_without_log_not_backfilled(monkeypatch):
     """A food item confirmed before the food module existed is not backfilled."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_food_confirm_mock(
         inbox_results=[[CONFIRMED_FOOD_ITEM]], food_log_results=[[]]
     )
@@ -1244,7 +1176,6 @@ def test_confirm_already_confirmed_food_without_log_not_backfilled(monkeypatch):
 
 def test_confirm_food_invalid_structured_json_creates_no_log(monkeypatch):
     """Missing required description → 400, RPC not called."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     bad = {**PENDING_FOOD_ROW, "structured_json": {"meal_type": "lunch"}}  # no description
     mock = _make_food_confirm_mock(inbox_results=[[bad]])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
@@ -1255,7 +1186,6 @@ def test_confirm_food_invalid_structured_json_creates_no_log(monkeypatch):
 
 def test_confirm_food_whitespace_description_creates_no_log(monkeypatch):
     """Whitespace-only description passes Pydantic but is caught by explicit check → 400."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     whitespace = {**PENDING_FOOD_ROW, "structured_json": {"description": "   "}}
     mock = _make_food_confirm_mock(inbox_results=[[whitespace]])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
@@ -1266,7 +1196,6 @@ def test_confirm_food_whitespace_description_creates_no_log(monkeypatch):
 
 def test_confirm_food_does_not_insert_in_python(monkeypatch):
     """The food_log is created only by the RPC — never by a Python .insert."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_food_confirm_mock(
         inbox_results=[[PENDING_FOOD_ROW]], rpc_result=FOOD_RPC_RESULT
     )
@@ -1280,7 +1209,6 @@ def test_confirm_food_does_not_insert_in_python(monkeypatch):
 
 def test_confirm_food_rpc_name_is_confirm_food_item(monkeypatch):
     """The RPC must be named exactly 'confirm_food_item'."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_food_confirm_mock(
         inbox_results=[[PENDING_FOOD_ROW]], rpc_result=FOOD_RPC_RESULT
     )
@@ -1291,7 +1219,6 @@ def test_confirm_food_rpc_name_is_confirm_food_item(monkeypatch):
 
 def test_confirm_food_needs_manual_status_returns_409(monkeypatch):
     """A needs_manual_classification food item cannot be confirmed → 409."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     needs_manual = {**PENDING_FOOD_ROW, "review_status": "needs_manual_classification"}
     mock = _make_food_confirm_mock(inbox_results=[[needs_manual]])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
@@ -1306,7 +1233,6 @@ def test_confirm_food_needs_manual_status_returns_409(monkeypatch):
 
 
 def test_confirm_finance_nan_amount_returns_400(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     nan_row = {
         **PENDING_FINANCE_ROW,
         "structured_json": {"amount": float("nan"), "currency": "SGD", "direction": "expense"},
@@ -1319,7 +1245,6 @@ def test_confirm_finance_nan_amount_returns_400(monkeypatch):
 
 
 def test_confirm_finance_positive_infinity_returns_400(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     inf_row = {
         **PENDING_FINANCE_ROW,
         "structured_json": {"amount": float("inf"), "currency": "SGD", "direction": "expense"},
@@ -1332,7 +1257,6 @@ def test_confirm_finance_positive_infinity_returns_400(monkeypatch):
 
 
 def test_confirm_finance_negative_infinity_returns_400(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     neg_inf_row = {
         **PENDING_FINANCE_ROW,
         "structured_json": {"amount": float("-inf"), "currency": "SGD", "direction": "expense"},
@@ -1345,7 +1269,6 @@ def test_confirm_finance_negative_infinity_returns_400(monkeypatch):
 
 
 def test_confirm_finance_negative_amount_returns_400(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     neg_row = {
         **PENDING_FINANCE_ROW,
         "structured_json": {"amount": -5.0, "currency": "SGD", "direction": "expense"},
@@ -1358,7 +1281,6 @@ def test_confirm_finance_negative_amount_returns_400(monkeypatch):
 
 
 def test_confirm_finance_valid_positive_amount_succeeds(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_finance_confirm_mock(
         inbox_results=[[PENDING_FINANCE_ROW]], rpc_result=FINANCE_RPC_RESULT
     )
@@ -1451,7 +1373,6 @@ def _make_calendar_confirm_mock(
 
 
 def test_confirm_pending_calendar_creates_intent_and_confirms(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_calendar_confirm_mock(
         inbox_results=[[PENDING_CALENDAR_ROW]], rpc_result=CALENDAR_RPC_RESULT
     )
@@ -1464,7 +1385,6 @@ def test_confirm_pending_calendar_creates_intent_and_confirms(monkeypatch):
 
 
 def test_confirm_calendar_reviewed_at_not_none(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_calendar_confirm_mock(
         inbox_results=[[PENDING_CALENDAR_ROW]], rpc_result=CALENDAR_RPC_RESULT
     )
@@ -1474,7 +1394,6 @@ def test_confirm_calendar_reviewed_at_not_none(monkeypatch):
 
 
 def test_confirm_calendar_intent_inbox_item_id_matches(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_calendar_confirm_mock(
         inbox_results=[[PENDING_CALENDAR_ROW]], rpc_result=CALENDAR_RPC_RESULT
     )
@@ -1490,7 +1409,6 @@ def test_confirm_calendar_intent_inbox_item_id_matches(monkeypatch):
 
 def test_confirm_calendar_already_confirmed_with_intent_returns_200(monkeypatch):
     """If already confirmed and a calendar_intent exists, return 200 without calling RPC."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_calendar_confirm_mock(
         inbox_results=[[CONFIRMED_CALENDAR_ITEM]],
         calendar_intent_results=[[CALENDAR_INTENT_ROW]],
@@ -1503,7 +1421,6 @@ def test_confirm_calendar_already_confirmed_with_intent_returns_200(monkeypatch)
 
 def test_confirm_calendar_already_confirmed_without_intent_returns_409(monkeypatch):
     """If confirmed but no calendar_intent, backfill is not supported → 409."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_calendar_confirm_mock(
         inbox_results=[[CONFIRMED_CALENDAR_ITEM]],
         calendar_intent_results=[[]],
@@ -1520,7 +1437,6 @@ def test_confirm_calendar_already_confirmed_without_intent_returns_409(monkeypat
 
 def test_confirm_calendar_rpc_error_then_confirmed_returns_200(monkeypatch):
     """RPC raises, re-read shows confirmed + intent already exists → 200 (concurrent win)."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_calendar_confirm_mock(
         inbox_results=[[PENDING_CALENDAR_ROW], [CONFIRMED_CALENDAR_ITEM]],
         calendar_intent_results=[[CALENDAR_INTENT_ROW]],
@@ -1533,7 +1449,6 @@ def test_confirm_calendar_rpc_error_then_confirmed_returns_200(monkeypatch):
 
 def test_confirm_calendar_rpc_error_still_pending_returns_503(monkeypatch):
     """RPC raises, re-read shows still pending, same updated_at, no intent → 503."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_calendar_confirm_mock(
         inbox_results=[[PENDING_CALENDAR_ROW], [PENDING_CALENDAR_ROW]],
         calendar_intent_results=[[]],
@@ -1547,7 +1462,6 @@ def test_confirm_calendar_rpc_error_still_pending_returns_503(monkeypatch):
 
 def test_confirm_calendar_rpc_error_updated_at_changed_returns_409(monkeypatch):
     """RPC raises, re-read shows updated_at changed → concurrent modification → 409."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     changed = {**PENDING_CALENDAR_ROW, "updated_at": "2024-01-01T13:30:00+00:00"}
     mock = _make_calendar_confirm_mock(
         inbox_results=[[PENDING_CALENDAR_ROW], [changed]],
@@ -1566,7 +1480,6 @@ def test_confirm_calendar_rpc_error_updated_at_changed_returns_409(monkeypatch):
 
 def test_confirm_calendar_missing_title_returns_400(monkeypatch):
     """structured_json without 'title' → 400, RPC not called."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     bad = {**PENDING_CALENDAR_ROW, "structured_json": {"proposed_datetime": "Friday 7pm"}}
     mock = _make_calendar_confirm_mock(inbox_results=[[bad]])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
@@ -1577,7 +1490,6 @@ def test_confirm_calendar_missing_title_returns_400(monkeypatch):
 
 def test_confirm_calendar_whitespace_title_returns_400(monkeypatch):
     """Whitespace-only title → 400, RPC not called."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     whitespace = {**PENDING_CALENDAR_ROW, "structured_json": {"title": "   "}}
     mock = _make_calendar_confirm_mock(inbox_results=[[whitespace]])
     with patch("app.routes.review.get_supabase_client", return_value=mock):
@@ -1593,7 +1505,6 @@ def test_confirm_calendar_whitespace_title_returns_400(monkeypatch):
 
 def test_confirm_calendar_does_not_python_insert(monkeypatch):
     """Python must not call .table('calendar_intents').insert() — only the RPC may write."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_calendar_confirm_mock(
         inbox_results=[[PENDING_CALENDAR_ROW]], rpc_result=CALENDAR_RPC_RESULT
     )
@@ -1605,7 +1516,6 @@ def test_confirm_calendar_does_not_python_insert(monkeypatch):
 
 def test_confirm_calendar_rpc_function_name(monkeypatch):
     """The RPC must be called as 'confirm_calendar_item'."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_calendar_confirm_mock(
         inbox_results=[[PENDING_CALENDAR_ROW]], rpc_result=CALENDAR_RPC_RESULT
     )
@@ -1616,7 +1526,6 @@ def test_confirm_calendar_rpc_function_name(monkeypatch):
 
 def test_confirm_calendar_needs_manual_classification_returns_409(monkeypatch):
     """Items with review_status='needs_manual_classification' cannot be confirmed → 409."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     needs_manual = {**PENDING_CALENDAR_ROW, "review_status": "needs_manual_classification"}
     mock = _make_calendar_confirm_mock(inbox_results=[[needs_manual]])
     with patch("app.routes.review.get_supabase_client", return_value=mock):

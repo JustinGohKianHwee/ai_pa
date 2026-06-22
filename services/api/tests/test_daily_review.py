@@ -20,7 +20,9 @@ from app.main import app
 
 client = TestClient(app)
 
-VALID_TOKEN = "test-dev-admin-token-xyz"
+from tests.conftest import mint_test_token
+
+VALID_TOKEN = mint_test_token()
 
 
 def _auth_header(token: str = VALID_TOKEN) -> dict:
@@ -207,18 +209,16 @@ def _make_daily_review_mock(
 # ---------------------------------------------------------------------------
 
 
-def test_daily_review_missing_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_daily_review_missing_token_returns_401(monkeypatch):
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     response = client.get("/daily_review")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_daily_review_wrong_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_daily_review_wrong_token_returns_401(monkeypatch):
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     response = client.get("/daily_review", headers={"Authorization": "Bearer wrong"})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +227,6 @@ def test_daily_review_wrong_token_returns_403(monkeypatch):
 
 
 def test_daily_review_date_yesterday_returns_422(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     response = client.get("/daily_review?date=yesterday", headers=_auth_header())
     assert response.status_code == 422
@@ -235,7 +234,6 @@ def test_daily_review_date_yesterday_returns_422(monkeypatch):
 
 
 def test_daily_review_date_iso_string_returns_422(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     response = client.get("/daily_review?date=2026-06-22", headers=_auth_header())
     assert response.status_code == 422
@@ -247,7 +245,6 @@ def test_daily_review_date_iso_string_returns_422(monkeypatch):
 
 
 def test_daily_review_missing_timezone_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.delenv("USER_TIMEZONE", raising=False)
     mock, _, _ = _make_daily_review_mock([], [], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -257,7 +254,6 @@ def test_daily_review_missing_timezone_returns_503(monkeypatch):
 
 
 def test_daily_review_invalid_timezone_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Not/ATimezone")
     mock, _, _ = _make_daily_review_mock([], [], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -272,7 +268,6 @@ def test_daily_review_invalid_timezone_returns_503(monkeypatch):
 
 
 def test_daily_review_empty_day_returns_zero_counts(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([], [], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -290,7 +285,6 @@ def test_daily_review_empty_day_returns_zero_counts(monkeypatch):
 
 
 def test_daily_review_empty_day_summary(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([], [], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -304,7 +298,6 @@ def test_daily_review_empty_day_summary(monkeypatch):
 
 
 def test_daily_review_response_has_required_fields(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([], [], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -324,7 +317,6 @@ def test_daily_review_response_has_required_fields(monkeypatch):
 
 
 def test_daily_review_captured_count_from_capture_events(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock(
         [CAPTURE_ROW_TASK, CAPTURE_ROW_PENDING], [], []
@@ -335,7 +327,6 @@ def test_daily_review_captured_count_from_capture_events(monkeypatch):
 
 
 def test_daily_review_confirmed_count_from_reviewed_at_window(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([], [CONFIRMED_TASK_ROW], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -344,7 +335,6 @@ def test_daily_review_confirmed_count_from_reviewed_at_window(monkeypatch):
 
 
 def test_daily_review_rejected_count_from_reviewed_at_window(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([], [], [REJECTED_FINANCE_ROW])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -354,7 +344,6 @@ def test_daily_review_rejected_count_from_reviewed_at_window(monkeypatch):
 
 def test_daily_review_pending_count_is_python_filter_no_extra_query(monkeypatch):
     """pending_count is derived from captured_items in Python — no fourth DB query."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, inbox_tbl = _make_daily_review_mock(
         [CAPTURE_ROW_TASK, CAPTURE_ROW_PENDING, CAPTURE_ROW_NEEDS_MANUAL], [], []
@@ -376,7 +365,6 @@ def test_daily_review_pending_count_is_python_filter_no_extra_query(monkeypatch)
 
 def test_daily_review_timezone_boundary_uses_sgt_midnight_utc(monkeypatch):
     """USER_TIMEZONE=Asia/Singapore: Q1 gte/lt args use SGT midnight → UTC."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
 
     # Fixed "now" = 2026-06-22 14:30:00 SGT (UTC+8).
@@ -408,7 +396,6 @@ def test_daily_review_timezone_boundary_uses_sgt_midnight_utc(monkeypatch):
 
 
 def test_daily_review_confirmed_by_type_task(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([], [CONFIRMED_TASK_ROW], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -418,7 +405,6 @@ def test_daily_review_confirmed_by_type_task(monkeypatch):
 
 
 def test_daily_review_confirmed_by_type_unknown_goes_to_other(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([], [CONFIRMED_UNKNOWN_ROW], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -430,7 +416,6 @@ def test_daily_review_confirmed_by_type_unknown_goes_to_other(monkeypatch):
 
 def test_daily_review_note_and_journal_in_confirmed_by_type(monkeypatch):
     """note/journal types appear in confirmed_by_type without implying a domain record."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock(
         [], [CONFIRMED_NOTE_ROW, CONFIRMED_JOURNAL_ROW], []
@@ -448,7 +433,6 @@ def test_daily_review_note_and_journal_in_confirmed_by_type(monkeypatch):
 
 
 def test_daily_review_summary_includes_type_breakdown_when_confirmed(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock(
         [CAPTURE_ROW_TASK], [CONFIRMED_TASK_ROW], []
@@ -462,7 +446,6 @@ def test_daily_review_summary_includes_type_breakdown_when_confirmed(monkeypatch
 
 def test_daily_review_rejected_only_day_not_empty_summary(monkeypatch):
     """A day with only rejections must NOT return 'Nothing captured or reviewed today.'"""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     # captured=0, confirmed=0, rejected=1
     mock, _, _ = _make_daily_review_mock([], [], [REJECTED_FINANCE_ROW])
@@ -479,7 +462,6 @@ def test_daily_review_rejected_only_day_not_empty_summary(monkeypatch):
 
 
 def test_daily_review_makes_no_db_writes(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, cap_tbl, inbox_tbl = _make_daily_review_mock([], [], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -498,7 +480,6 @@ def test_daily_review_makes_no_db_writes(monkeypatch):
 
 
 def test_daily_review_db_config_error_returns_500(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     with patch(
         "app.routes.daily_review.get_supabase_client",
@@ -509,7 +490,6 @@ def test_daily_review_db_config_error_returns_500(monkeypatch):
 
 
 def test_daily_review_db_query_failure_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([], [], [], db_error=True)
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -524,7 +504,6 @@ def test_daily_review_db_query_failure_returns_503(monkeypatch):
 
 def test_daily_review_handles_dict_inbox_items_shape(monkeypatch):
     """PostgREST may return a one-to-one FK as a single dict — must not crash."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([CAPTURE_ROW_TASK_DICT_SHAPE], [], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -541,7 +520,6 @@ def test_daily_review_handles_dict_inbox_items_shape(monkeypatch):
 
 def test_daily_review_captured_items_use_capture_event_timestamp(monkeypatch):
     """captured_items[].captured_at must be the outer capture_event timestamp."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([CAPTURE_ROW_TASK], [], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
@@ -554,7 +532,6 @@ def test_daily_review_captured_items_use_capture_event_timestamp(monkeypatch):
 
 def test_daily_review_orphaned_capture_in_count_and_list(monkeypatch):
     """A capture with no linked inbox item must appear in captured_count and captured_items."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([CAPTURE_ROW_NO_INBOX], [], [])
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):

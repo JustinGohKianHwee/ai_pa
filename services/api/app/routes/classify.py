@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
 from app.routes.telegram import _classify_and_update
-from app.security import require_dev_admin_token
+from app.security import require_user
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 
@@ -24,7 +24,7 @@ class ClassifyResponse(BaseModel):
     confidence: Optional[float] = None
 
 
-@router.post("/{inbox_id}/classify", dependencies=[Depends(require_dev_admin_token)])
+@router.post("/{inbox_id}/classify", dependencies=[Depends(require_user)])
 async def reclassify_inbox_item(inbox_id: str) -> ClassifyResponse:
     """
     Admin/recovery endpoint — NOT part of the normal capture pipeline.

@@ -20,7 +20,9 @@ from app.brokers.tiger import TigerAdapter
 from app.main import app
 
 client = TestClient(app)
-VALID_TOKEN = "test-dev-admin-token-xyz"
+from tests.conftest import mint_test_token
+
+VALID_TOKEN = mint_test_token()
 
 
 def _auth_header(token: str = VALID_TOKEN) -> dict:
@@ -68,14 +70,12 @@ def _broker(body: dict, name: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_portfolio_missing_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
-    assert client.get("/portfolio").status_code == 403
+def test_portfolio_missing_token_returns_401(monkeypatch):
+    assert client.get("/portfolio").status_code == 401
 
 
-def test_portfolio_wrong_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
-    assert client.get("/portfolio", headers={"Authorization": "Bearer nope"}).status_code == 403
+def test_portfolio_wrong_token_returns_401(monkeypatch):
+    assert client.get("/portfolio", headers={"Authorization": "Bearer nope"}).status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +84,6 @@ def test_portfolio_wrong_token_returns_403(monkeypatch):
 
 
 def test_portfolio_both_ok(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     _patch(monkeypatch, _ok("ibkr", [_pos("ibkr")]), _ok("tiger", [_pos("tiger")]))
     r = client.get("/portfolio", headers=_auth_header())
     assert r.status_code == 200
@@ -95,7 +94,6 @@ def test_portfolio_both_ok(monkeypatch):
 
 
 def test_portfolio_tiger_ok_ibkr_failed(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     _patch(monkeypatch, _fail("ibkr", BrokerStatus.TIMEOUT), _ok("tiger", [_pos("tiger")]))
     body = client.get("/portfolio", headers=_auth_header()).json()
     assert body["partial_failure"] is True
@@ -106,7 +104,6 @@ def test_portfolio_tiger_ok_ibkr_failed(monkeypatch):
 
 
 def test_portfolio_ibkr_ok_tiger_failed(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     _patch(monkeypatch, _ok("ibkr", [_pos("ibkr")]), _fail("tiger", BrokerStatus.AUTH_ERROR))
     body = client.get("/portfolio", headers=_auth_header()).json()
     assert body["partial_failure"] is True
@@ -115,7 +112,6 @@ def test_portfolio_ibkr_ok_tiger_failed(monkeypatch):
 
 
 def test_portfolio_both_failed(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     _patch(monkeypatch, _fail("ibkr", BrokerStatus.UNAVAILABLE), _fail("tiger", BrokerStatus.ERROR))
     body = client.get("/portfolio", headers=_auth_header()).json()
     assert body["partial_failure"] is True
@@ -123,7 +119,6 @@ def test_portfolio_both_failed(monkeypatch):
 
 
 def test_portfolio_empty(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     _patch(monkeypatch, _ok("ibkr"), _ok("tiger"))
     body = client.get("/portfolio", headers=_auth_header()).json()
     assert body["partial_failure"] is False
@@ -131,7 +126,6 @@ def test_portfolio_empty(monkeypatch):
 
 
 def test_portfolio_multiple_accounts(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     ibkr = BrokerResult(
         broker="ibkr",
         status=BrokerStatus.OK,
@@ -148,7 +142,6 @@ def test_portfolio_multiple_accounts(monkeypatch):
 
 
 def test_portfolio_totals_grouped_by_currency_never_summed(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     _patch(
         monkeypatch,
         _ok("ibkr", [_pos("ibkr", ccy="USD", mv=1000.0)]),
@@ -162,7 +155,6 @@ def test_portfolio_totals_grouped_by_currency_never_summed(monkeypatch):
 
 
 def test_portfolio_same_currency_summed_across_brokers(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     _patch(
         monkeypatch,
         _ok("ibkr", [_pos("ibkr", ccy="USD", mv=1000.0)]),
@@ -176,7 +168,6 @@ def test_portfolio_same_currency_summed_across_brokers(monkeypatch):
 
 
 def test_portfolio_incomplete_totals_flagged_per_metric(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     # Two USD positions; one missing market_value but both have unrealized_pnl.
     ibkr = _ok(
         "ibkr",
@@ -215,7 +206,6 @@ def test_health_works_without_broker_config(monkeypatch):
 
 
 def test_portfolio_makes_no_supabase_calls(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     _patch(monkeypatch, _ok("ibkr", [_pos("ibkr")]), _ok("tiger"))
     sb = MagicMock()
     with patch("app.db.supabase_client.get_supabase_client", sb):
@@ -224,7 +214,6 @@ def test_portfolio_makes_no_supabase_calls(monkeypatch):
 
 
 def test_portfolio_no_full_account_number_in_response(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     _patch(monkeypatch, _ok("ibkr", [_pos("ibkr")]), _ok("tiger"))
     text = client.get("/portfolio", headers=_auth_header()).text
     assert "U***4567" in text  # masked ref present
@@ -238,7 +227,6 @@ def test_portfolio_no_full_account_number_in_response(monkeypatch):
 
 
 def test_repeated_timeout_no_thread_accumulation(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("PORTFOLIO_BROKER_TIMEOUT", "0.3")
     ps._INFLIGHT.clear()
 

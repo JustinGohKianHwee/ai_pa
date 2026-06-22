@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
-from app.security import require_dev_admin_token
+from app.security import require_user
 
 router = APIRouter(tags=["calendar"])
 
@@ -24,7 +24,7 @@ class CalendarIntentsListResponse(BaseModel):
     total: int
 
 
-@router.get("/calendar_intents", dependencies=[Depends(require_dev_admin_token)])
+@router.get("/calendar_intents", dependencies=[Depends(require_user)])
 def get_calendar_intents() -> CalendarIntentsListResponse:
     try:
         client = get_supabase_client()

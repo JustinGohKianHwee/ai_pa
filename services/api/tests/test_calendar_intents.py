@@ -7,7 +7,9 @@ from app.main import app
 
 client = TestClient(app)
 
-VALID_TOKEN = "test-dev-admin-token-xyz"
+from tests.conftest import mint_test_token
+
+VALID_TOKEN = mint_test_token()
 
 
 def _auth_header(token: str = VALID_TOKEN) -> dict:
@@ -53,16 +55,14 @@ def _make_list_mock(data: list) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-def test_calendar_missing_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_calendar_missing_token_returns_401(monkeypatch):
     response = client.get("/calendar_intents")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_calendar_wrong_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_calendar_wrong_token_returns_401(monkeypatch):
     response = client.get("/calendar_intents", headers={"Authorization": "Bearer wrong"})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,6 @@ def test_calendar_wrong_token_returns_403(monkeypatch):
 
 
 def test_calendar_empty_list_returns_zero_total(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([])
     with patch("app.routes.calendar.get_supabase_client", return_value=mock):
         response = client.get("/calendar_intents", headers=_auth_header())
@@ -82,7 +81,6 @@ def test_calendar_empty_list_returns_zero_total(monkeypatch):
 
 def test_calendar_returns_correct_shape_and_total(monkeypatch):
     """All 7 response fields must be present and total must match items length."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([INTENT_ROW_1])
     with patch("app.routes.calendar.get_supabase_client", return_value=mock):
         response = client.get("/calendar_intents", headers=_auth_header())
@@ -97,7 +95,6 @@ def test_calendar_returns_correct_shape_and_total(monkeypatch):
 
 
 def test_calendar_two_items_returns_total_two(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = _make_list_mock([INTENT_ROW_1, INTENT_ROW_2])
     with patch("app.routes.calendar.get_supabase_client", return_value=mock):
         response = client.get("/calendar_intents", headers=_auth_header())
@@ -108,7 +105,6 @@ def test_calendar_two_items_returns_total_two(monkeypatch):
 
 
 def test_calendar_ordered_newest_confirmed_first(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     # Supabase returns them already ordered DESC by created_at; we verify the mock is used
     # and the order is preserved in the response.
     mock = _make_list_mock([INTENT_ROW_1, INTENT_ROW_2])
@@ -130,7 +126,6 @@ def test_calendar_ordered_newest_confirmed_first(monkeypatch):
 
 
 def test_calendar_null_proposed_datetime_roundtrip(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     row = {**INTENT_ROW_1, "proposed_datetime": None}
     mock = _make_list_mock([row])
     with patch("app.routes.calendar.get_supabase_client", return_value=mock):
@@ -139,7 +134,6 @@ def test_calendar_null_proposed_datetime_roundtrip(monkeypatch):
 
 
 def test_calendar_null_location_roundtrip(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     row = {**INTENT_ROW_1, "location": None}
     mock = _make_list_mock([row])
     with patch("app.routes.calendar.get_supabase_client", return_value=mock):
@@ -148,7 +142,6 @@ def test_calendar_null_location_roundtrip(monkeypatch):
 
 
 def test_calendar_null_notes_roundtrip(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     row = {**INTENT_ROW_1, "notes": None}
     mock = _make_list_mock([row])
     with patch("app.routes.calendar.get_supabase_client", return_value=mock):
@@ -162,7 +155,6 @@ def test_calendar_null_notes_roundtrip(monkeypatch):
 
 
 def test_calendar_db_config_error_returns_500(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     with patch(
         "app.routes.calendar.get_supabase_client",
         side_effect=SupabaseConfigurationError("missing key"),
@@ -172,7 +164,6 @@ def test_calendar_db_config_error_returns_500(monkeypatch):
 
 
 def test_calendar_db_query_failure_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock = MagicMock()
     (
         mock.table.return_value

@@ -1,22 +1,13 @@
 import Link from "next/link";
 import type { InboxItem, InboxResponse } from "./types";
 import { InboxCard } from "./InboxCard";
+import { authedFetch } from "@/lib/api";
 
 // Always render at request time — never pre-render at build; requires live token + data.
 export const dynamic = "force-dynamic";
 
 async function getInboxItems(): Promise<InboxItem[]> {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-  const token = process.env.DEV_ADMIN_TOKEN;
-
-  if (!token) {
-    throw new Error(
-      "DEV_ADMIN_TOKEN is not configured. Add it to apps/web/.env.local."
-    );
-  }
-
-  const res = await fetch(`${apiUrl}/inbox`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const res = await authedFetch("/inbox", {
     cache: "no-store",
   });
 

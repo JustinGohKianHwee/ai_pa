@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
-from app.security import require_dev_admin_token
+from app.security import require_user
 
 router = APIRouter(tags=["food"])
 
@@ -50,7 +50,7 @@ class FoodLogsListResponse(BaseModel):
     total: int
 
 
-@router.get("/food_logs", dependencies=[Depends(require_dev_admin_token)])
+@router.get("/food_logs", dependencies=[Depends(require_user)])
 def list_food_logs(date: Optional[str] = None) -> FoodLogsListResponse:
     if date is not None and date != "today":
         raise HTTPException(

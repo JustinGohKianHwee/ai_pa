@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
-from app.security import require_dev_admin_token
+from app.security import require_user
 
 router = APIRouter()
 
@@ -36,7 +36,7 @@ class InboxResponse(BaseModel):
     total: int
 
 
-@router.get("/inbox", dependencies=[Depends(require_dev_admin_token)])
+@router.get("/inbox", dependencies=[Depends(require_user)])
 def get_inbox() -> InboxResponse:
     try:
         client = get_supabase_client()

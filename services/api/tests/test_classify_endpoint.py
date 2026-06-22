@@ -8,7 +8,9 @@ from app.services.classifier import ClassificationError, ClassificationResult
 
 client = TestClient(app)
 
-VALID_TOKEN = "test-dev-admin-token-xyz"
+from tests.conftest import mint_test_token
+
+VALID_TOKEN = mint_test_token()
 INBOX_ID = "inbox-uuid-abc"
 
 SAMPLE_INBOX_ROW = {
@@ -59,16 +61,14 @@ def _auth_header(token: str = VALID_TOKEN) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_classify_missing_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_classify_missing_token_returns_401(monkeypatch):
     response = client.post(f"/inbox/{INBOX_ID}/classify")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_classify_wrong_token_returns_403(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+def test_classify_wrong_token_returns_401(monkeypatch):
     response = client.post(f"/inbox/{INBOX_ID}/classify", headers={"Authorization": "Bearer wrong"})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -77,14 +77,12 @@ def test_classify_wrong_token_returns_403(monkeypatch):
 
 
 def test_classify_missing_api_key_returns_503(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     response = client.post(f"/inbox/{INBOX_ID}/classify", headers=_auth_header())
     assert response.status_code == 503
 
 
 def test_classify_not_found_returns_404(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
 
     mock = MagicMock()
@@ -105,7 +103,6 @@ def test_classify_not_found_returns_404(monkeypatch):
 
 def test_classify_not_found_vs_db_failure(monkeypatch):
     """Empty result (0 rows) → 404; actual DB exception → 503 (distinct error paths)."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
 
     # Not found: no exception, empty list
@@ -138,7 +135,6 @@ def test_classify_not_found_vs_db_failure(monkeypatch):
 
 
 def test_classify_confirmed_item_returns_400(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
 
     confirmed_row = {**SAMPLE_INBOX_ROW, "review_status": "confirmed"}
@@ -164,7 +160,6 @@ def test_classify_confirmed_item_returns_400(monkeypatch):
 
 
 def test_classify_success_returns_200_and_updated_item(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
 
     mock = MagicMock()
@@ -195,7 +190,6 @@ def test_classify_success_returns_200_and_updated_item(monkeypatch):
 
 def test_classify_does_not_create_domain_records(monkeypatch):
     """After classification, only inbox_items and agent_runs are touched — no domain tables."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
 
     mock = MagicMock()
@@ -222,7 +216,6 @@ def test_classify_does_not_create_domain_records(monkeypatch):
 
 def test_classify_already_classified_item_returns_400(monkeypatch):
     """Items with a real item_type (not 'unknown') must be rejected — review or reject in inbox."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
 
     classified_row = {**SAMPLE_INBOX_ROW, "item_type": "finance", "review_status": "pending"}
@@ -249,7 +242,6 @@ def test_classify_already_classified_item_returns_400(monkeypatch):
 
 def test_classify_voice_uses_transcript_fallback(monkeypatch):
     """When body and raw_text are absent, the capture transcript is used as classification text."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
 
     voice_row = {
@@ -283,7 +275,6 @@ def test_classify_voice_uses_transcript_fallback(monkeypatch):
 
 def test_classify_updated_fetch_empty_returns_503(monkeypatch):
     """If the re-fetch after classification returns no rows, return 503."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
 
     mock = MagicMock()
@@ -305,7 +296,6 @@ def test_classify_updated_fetch_empty_returns_503(monkeypatch):
 
 def test_classify_voice_body_preferred_over_transcript(monkeypatch):
     """When body is present, it takes priority over transcript."""
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
 
     voice_row = {

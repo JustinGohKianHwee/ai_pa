@@ -7,29 +7,28 @@ from app.db.supabase_client import SupabaseConfigurationError
 
 client = TestClient(app)
 
-VALID_TOKEN = "test-dev-admin-token-abc123"
+from tests.conftest import mint_test_token
+
+VALID_TOKEN = mint_test_token()
 
 
 def test_health_db_rejects_missing_auth_header(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     response = client.get("/health/db")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_health_db_rejects_wrong_token(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     response = client.get("/health/db", headers={"Authorization": "Bearer wrong-token"})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_health_db_returns_500_when_token_not_configured(monkeypatch):
-    monkeypatch.delenv("DEV_ADMIN_TOKEN", raising=False)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
     response = client.get("/health/db", headers={"Authorization": "Bearer anything"})
     assert response.status_code == 500
 
 
 def test_health_db_returns_200_with_mocked_supabase(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
 
     mock_supabase = MagicMock()
     mock_supabase.table.return_value.select.return_value.limit.return_value.execute.return_value.data = []
@@ -46,7 +45,6 @@ def test_health_db_returns_200_with_mocked_supabase(monkeypatch):
 
 
 def test_health_db_returns_500_when_supabase_client_raises(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
 
     with patch(
         "app.routes.health_db.get_supabase_client",
@@ -58,7 +56,6 @@ def test_health_db_returns_500_when_supabase_client_raises(monkeypatch):
 
 
 def test_health_db_returns_safe_503_when_query_fails(monkeypatch):
-    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     mock_supabase = MagicMock()
     mock_supabase.table.return_value.select.return_value.limit.return_value.execute.side_effect = (
         RuntimeError("sensitive upstream detail")

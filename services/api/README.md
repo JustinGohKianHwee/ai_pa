@@ -1,6 +1,6 @@
 # services/api — Backend API
 
-**Status: Phase 14 — read-only portfolio (implementation complete; manual verification pending).**
+**Status: Phase 15a — authentication + RLS (implementation complete; manual setup pending).**
 
 `GET /portfolio` aggregates current positions, cash, and today's performance across Tiger and
 IBKR, read-only. Brokers are fetched independently and concurrently with bounded per-broker
@@ -12,7 +12,7 @@ migration. See **Read-only enforcement** below.
 
 Phase 13 (✓ complete): daily review — `GET /daily_review`. Phase 12 (✓ complete): calendar
 intents. Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription.
-Migrations `0001`–`0007` applied. 317 tests pass (all mocked).
+Migrations `0001`–`0007` applied; migration `0008` requires manual application. 348 tests pass.
 
 ## Planned stack
 - Python 3.11+
@@ -39,7 +39,7 @@ The backend enforces the core pipeline:
 app/
   main.py            — FastAPI app, registers all routers
   config.py          — env var reads (module-level reference; hot paths read os.getenv directly)
-  security.py        — require_dev_admin_token FastAPI dependency
+  security.py        — require_user Supabase JWT + owner-gate dependency
   db/
     supabase_client.py — get_supabase_client() factory (server-side, service role key)
   services/
@@ -94,7 +94,7 @@ Copy the root `.env.example` to `services/api/.env.local` and fill in your value
 | `SUPABASE_URL` | `/health/db` and all DB routes | Project base URL only — no `/rest/v1/` path |
 | `SUPABASE_ANON_KEY` | Future frontend read paths | Public key, lower privilege |
 | `SUPABASE_SERVICE_ROLE_KEY` | All backend DB writes | **Server-side only. Never expose to frontend or commit.** |
-| `DEV_ADMIN_TOKEN` | All non-webhook routes (Phases 4–15) | Generate: `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `OWNER_USER_ID` | Single-user gate on protected routes | Owner UID from Authentication → Users. |
 | `TELEGRAM_BOT_TOKEN` | Sending confirmation replies | Best-effort — missing token skips reply but preserves capture |
 | `TELEGRAM_WEBHOOK_SECRET` | `POST /telegram/webhook` | Set in BotFather when registering webhook; must match request header |
 | `TELEGRAM_USER_ID` | `POST /telegram/webhook` | Your Telegram numeric user ID; missing = server misconfiguration (500) |
@@ -120,23 +120,23 @@ It must never appear in `apps/web/` env vars, browser bundles, or client respons
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/health` | Public | Returns `{"status": "ok"}`. No DB, always fast. |
-| `GET` | `/health/db` | `DEV_ADMIN_TOKEN` | Read-only DB connectivity check. |
-| `GET` | `/inbox` | `DEV_ADMIN_TOKEN` | Returns pending + needs_manual_classification inbox items with embedded capture context. Newest first. |
-| `POST` | `/inbox/{id}/classify` | `DEV_ADMIN_TOKEN` | **Recovery only** — reclassifies stubs (`item_type="unknown"`) from Phase 4/5 or failed classification. Returns 400 for confirmed, rejected, or already-classified items. Requires `OPENAI_API_KEY`; returns 503 if absent. |
-| `PATCH` | `/inbox/{id}/confirm` | `DEV_ADMIN_TOKEN` | Confirms a pending inbox item. **Task** items use the `confirm_task_item` RPC → `{inbox_item, task}`; finance **expense** items use the `confirm_finance_item` RPC → `{inbox_item, money_event}` (each creates one linked domain row + sets `confirmed`/`reviewed_at` in one transaction). Finance **income** and module-less types set `review_status=confirmed`/`reviewed_at` only (status-only). Idempotent. |
-| `PATCH` | `/inbox/{id}/reject` | `DEV_ADMIN_TOKEN` | Rejects a pending or needs_manual_classification item. Sets `review_status=rejected` and `reviewed_at`. Idempotent. |
-| `PATCH` | `/inbox/{id}` | `DEV_ADMIN_TOKEN` | Edits a reviewable (pending or needs_manual_classification) item. Validates item_type and structured_json. Correcting a needs_manual item to a valid type returns it to pending. Never calls OpenAI. |
-| `GET` | `/tasks` | `DEV_ADMIN_TOKEN` | Read-only list of confirmed tasks, newest first. |
-| `PATCH` | `/tasks/{id}/complete` | `DEV_ADMIN_TOKEN` | Marks a task `completed` and sets `completed_at`. Idempotent. 404 if missing. No task editing. |
-| `GET` | `/money_events` | `DEV_ADMIN_TOKEN` | Read-only list of confirmed expenses, newest first, with `totals_by_currency` (grouped by currency then category; currencies never summed together). |
-| `GET` | `/food_logs` | `DEV_ADMIN_TOKEN` | Read-only list of confirmed food logs, newest first. `?date=today` filters by the user's local calendar day (based on `USER_TIMEZONE`), using `created_at` UTC boundaries — not `logged_at`. Only `date=today` or no param accepted; other values return 422. |
-| `GET` | `/calendar_intents` | `DEV_ADMIN_TOKEN` | Read-only list of all confirmed calendar intents, ordered by `created_at DESC`. `proposed_datetime` is verbatim text — not parsed. No date filter. |
-| `GET` | `/daily_review` | `DEV_ADMIN_TOKEN` | Read-only daily activity summary. Only `?date=today` or no param accepted; other values return 422. Requires `USER_TIMEZONE` — missing or invalid → 503. Returns captured/confirmed/rejected/pending counts, item lists, and a deterministic summary string. No AI call. |
-| `GET` | `/portfolio` | `DEV_ADMIN_TOKEN` | Read-only Tiger + IBKR portfolio. Brokers fetched independently/concurrently with bounded per-broker timeouts; one failing broker never hides the other (`partial_failure`, per-broker `status`). Returns normalized positions, account summaries, cash, and `totals_by_currency` (grouped per currency, never summed across currencies, with per-metric completeness). Account refs masked. No Supabase access, no broker writes. Returns 200 even when brokers are unconfigured/unavailable (the failure is reported in the body). |
+| `GET` | `/health/db` | `Supabase access token` | Read-only DB connectivity check. |
+| `GET` | `/inbox` | `Supabase access token` | Returns pending + needs_manual_classification inbox items with embedded capture context. Newest first. |
+| `POST` | `/inbox/{id}/classify` | `Supabase access token` | **Recovery only** — reclassifies stubs (`item_type="unknown"`) from Phase 4/5 or failed classification. Returns 400 for confirmed, rejected, or already-classified items. Requires `OPENAI_API_KEY`; returns 503 if absent. |
+| `PATCH` | `/inbox/{id}/confirm` | `Supabase access token` | Confirms a pending inbox item. **Task** items use the `confirm_task_item` RPC → `{inbox_item, task}`; finance **expense** items use the `confirm_finance_item` RPC → `{inbox_item, money_event}` (each creates one linked domain row + sets `confirmed`/`reviewed_at` in one transaction). Finance **income** and module-less types set `review_status=confirmed`/`reviewed_at` only (status-only). Idempotent. |
+| `PATCH` | `/inbox/{id}/reject` | `Supabase access token` | Rejects a pending or needs_manual_classification item. Sets `review_status=rejected` and `reviewed_at`. Idempotent. |
+| `PATCH` | `/inbox/{id}` | `Supabase access token` | Edits a reviewable (pending or needs_manual_classification) item. Validates item_type and structured_json. Correcting a needs_manual item to a valid type returns it to pending. Never calls OpenAI. |
+| `GET` | `/tasks` | `Supabase access token` | Read-only list of confirmed tasks, newest first. |
+| `PATCH` | `/tasks/{id}/complete` | `Supabase access token` | Marks a task `completed` and sets `completed_at`. Idempotent. 404 if missing. No task editing. |
+| `GET` | `/money_events` | `Supabase access token` | Read-only list of confirmed expenses, newest first, with `totals_by_currency` (grouped by currency then category; currencies never summed together). |
+| `GET` | `/food_logs` | `Supabase access token` | Read-only list of confirmed food logs, newest first. `?date=today` filters by the user's local calendar day (based on `USER_TIMEZONE`), using `created_at` UTC boundaries — not `logged_at`. Only `date=today` or no param accepted; other values return 422. |
+| `GET` | `/calendar_intents` | `Supabase access token` | Read-only list of all confirmed calendar intents, ordered by `created_at DESC`. `proposed_datetime` is verbatim text — not parsed. No date filter. |
+| `GET` | `/daily_review` | `Supabase access token` | Read-only daily activity summary. Only `?date=today` or no param accepted; other values return 422. Requires `USER_TIMEZONE` — missing or invalid → 503. Returns captured/confirmed/rejected/pending counts, item lists, and a deterministic summary string. No AI call. |
+| `GET` | `/portfolio` | `Supabase access token` | Read-only Tiger + IBKR portfolio. Brokers fetched independently/concurrently with bounded per-broker timeouts; one failing broker never hides the other (`partial_failure`, per-broker `status`). Returns normalized positions, account summaries, cash, and `totals_by_currency` (grouped per currency, never summed across currencies, with per-metric completeness). Account refs masked. No Supabase access, no broker writes. Returns 200 even when brokers are unconfigured/unavailable (the failure is reported in the body). |
 | `POST` | `/telegram/webhook` | `TELEGRAM_WEBHOOK_SECRET` header | Telegram text and voice capture. Text → classify directly. Voice → download OGG → Whisper → classify. Non-text/voice updates silently ignored. |
 
-`/telegram/webhook` uses its own secret (`X-Telegram-Bot-Api-Secret-Token` header), **not**
-`DEV_ADMIN_TOKEN`. All other non-webhook routes use `DEV_ADMIN_TOKEN`.
+`/telegram/webhook` uses its own secret (`X-Telegram-Bot-Api-Secret-Token` header), not a
+user session. All other non-webhook routes require a valid owner Supabase access token.
 
 ## Read-only enforcement & residual risk (Phase 14 brokers)
 
@@ -163,18 +163,17 @@ Broker credentials, private keys, account numbers, and raw broker responses neve
 responses or logs. Account references are masked. Brokers run in a bounded thread pool with a
 per-broker single-flight guard, so a hung broker cannot accumulate background threads.
 
-## Development route protection
+## Authentication and route protection
 
-Until Phase 15 (auth/RLS), every non-webhook route uses `require_dev_admin_token`
-from `app/security.py`. Pass: `Authorization: Bearer <your-dev-token>`.
+Every non-webhook protected route uses `require_user` from `app/security.py`. It verifies
+the Supabase ES256 access-token signature through the project's cached public JWKS, then
+checks audience, expiry, and owner subject before the
+service-role database client is used. Missing/invalid tokens return 401; a valid non-owner
+token returns 403. `/health` remains public.
 
-The Telegram webhook validates its own `TELEGRAM_WEBHOOK_SECRET` independently.
-`SUPABASE_SERVICE_ROLE_KEY` is never sent to the frontend.
-
-If using ngrok or any public tunnel:
-- Prefer exposing only `/telegram/webhook` path if the tunnel supports path routing.
-- If the full backend is exposed, the `DEV_ADMIN_TOKEN` guard still applies to every
-  non-webhook route. The tunnel does not bypass middleware.
+The Telegram webhook validates `TELEGRAM_WEBHOOK_SECRET` independently. Tunneling does not
+bypass either guard. `SUPABASE_SERVICE_ROLE_KEY` remains backend-only; no JWT signing secret
+is copied into the application.
 
 ## Telegram webhook flow (Phase 4)
 
@@ -260,7 +259,7 @@ Expected response:
 ## Phase 4 end-to-end verification (required to close Phase 4)
 
 1. Fix `SUPABASE_URL` in `.env.local` — must be the bare project URL with no `/rest/v1/` suffix
-2. Add `DEV_ADMIN_TOKEN` to `.env.local`
+2. Add `OWNER_USER_ID` to `.env.local`; `SUPABASE_URL` identifies the public JWKS endpoint
 3. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET` to `.env.local`
 4. Set `TELEGRAM_USER_ID` to your numeric Telegram user ID
 5. Start the backend: `uvicorn app.main:app --reload`
@@ -277,7 +276,7 @@ Expected response:
 
 - Phase 1: FastAPI scaffold, `GET /health`, pytest setup
 - Phase 2: Database schema (`supabase/migrations/0001_capture_pipeline.sql`)
-- Phase 3: Supabase client factory, DEV_ADMIN_TOKEN guard, `GET /health/db`
+- Phase 3: Supabase client factory, temporary development bearer-token guard, `GET /health/db`
 - Phase 4: Telegram text capture, `POST /telegram/webhook`, stub inbox_items
 - Phase 5: Dashboard inbox read route, `GET /inbox` with embedded capture context, Pydantic response models
 - Phase 6: AI classification, `app/services/classifier.py` (OpenAI gpt-4o-mini, JSON mode), `POST /inbox/{id}/classify`, agent_runs logging, failure lifecycle
@@ -289,3 +288,6 @@ Expected response:
 - Phase 12: Calendar intents module ✓ complete, `supabase/migrations/0007_calendar_intents.sql` (`calendar_intents` table + `confirm_calendar_item` atomic RPC), `app/routes/calendar.py` (`GET /calendar_intents`), calendar branch in `confirm` (`review.py`). `proposed_datetime` stored as verbatim TEXT; no date filter; ordered by `created_at DESC`. No `status` column, no `user_id`. 248 tests pass.
 - Phase 13: Daily review module ✓ complete, `app/routes/daily_review.py` (`GET /daily_review`). Three read-only queries: `capture_events.created_at` for captures (embedded inbox_items via reverse-FK select), `inbox_items.reviewed_at` for confirmed/rejected. `USER_TIMEZONE` required — missing or invalid → 503. Deterministic summary, no AI call, no migration. Automated and manual E2E verification passed. 273 tests pass.
 - Phase 14: Read-only portfolio (implementation complete; manual verification pending), `app/brokers/` (models, masking, base, `tiger.py`, `ibkr.py`, `portfolio_service.py`) + `app/routes/portfolio.py` (`GET /portfolio`). IBKR via Client Portal Web API (httpx, GET-only allowlist, strict local-TLS); Tiger via `tigeropen` (lazy-imported, SDK-method allowlist). Concurrent fetch with bounded executor + per-broker single-flight; totals grouped per currency with per-metric completeness; account masking; no Supabase access; no migration. New deps: `tigeropen`. 317 tests pass (44 new, all mocked).
+- Phase 15a: Supabase email/password authentication, ES256/JWKS owner verification on every
+  non-webhook protected route, cookie-based Next.js sessions, and deny-by-default RLS migration
+  `0008_rls_lockdown.sql`. Backend database access remains service-role. Manual setup pending.

@@ -274,26 +274,21 @@ AI APIs directly.
 **Deployed as:** A separate Python service (Render / Railway / Fly — Phase 16+).
 During development: runs locally alongside the Next.js dev server.
 
-**Development security (Phases 4–15)**
+**Authentication and route security (Phase 15a+)**
 
-Until Phase 15 (auth/RLS), the following rules apply:
-
-- The backend runs locally by default. No routes are publicly accessible unless a
-  tunnel is explicitly started.
-- A `DEV_ADMIN_TOKEN` env var must be set during Phases 4–15. All non-webhook API
-  routes must check for `Authorization: Bearer <DEV_ADMIN_TOKEN>` before serving any
-  request. This is a development guard only — it is replaced by real auth in Phase 15.
+- Supabase Auth provides the owner's email/password session. Next.js stores and refreshes
+  the session in cookies and forwards the access token to FastAPI.
+- Every non-webhook protected API route verifies the ES256 signature through Supabase's
+  cached public JWKS, then checks the authenticated audience, expiry, and
+  `sub == OWNER_USER_ID` before serving personal data.
 - The Telegram webhook path (`/telegram/webhook`) is the only route that should ever
   be exposed publicly. It must validate `X-Telegram-Bot-Api-Secret-Token` before
   accepting any payload.
-- Tunneling exposes routes publicly but does not bypass middleware or token checks.
-  Prefer path-only exposure for `/telegram/webhook` when the tunnel supports it. If the
-  full backend is tunneled, every non-webhook route that reads or mutates personal data
-  must still enforce `DEV_ADMIN_TOKEN`.
+- Tunneling exposes routes publicly but does not bypass JWT or webhook-secret checks.
 - `SUPABASE_SERVICE_ROLE_KEY` is used only server-side. It must never appear in
   frontend environment variables, browser bundles, or client-visible responses.
-- The Next.js frontend may use `SUPABASE_ANON_KEY` for read-only queries, or call
-  the FastAPI backend (which holds the service key) for mutations and protected data.
+- The frontend anon key is public-safe, but RLS and revoked grants prevent direct table
+  and confirmation-RPC access. FastAPI retains the service-role client by design.
 
 ---
 
@@ -313,10 +308,10 @@ Until Phase 15 (auth/RLS), the following rules apply:
 - `calendar_intents` (Phase 12+)
 - portfolio snapshot runs, account observations, positions, and cash balances (Phase 14.5+)
 - `user_preferences` (Phase 15+)
-- `memory_chunks` — vector embeddings (Phase 15+)
+- `memory_chunks` — vector embeddings (Phase 15b+)
 
-**Auth / RLS:** Deferred to Phase 15. During development, the service role key is used
-and RLS is not enforced.
+**Auth / RLS:** Phase 15a adds single-owner API authentication and deny-by-default RLS on
+all current tables. The service-role backend bypasses RLS only after API-layer JWT checks.
 
 ---
 
@@ -337,7 +332,7 @@ These are not in scope until the core pipeline is working.
 - **iOS Shortcuts** — alternative capture surface (voice-to-text via Apple)
 - **Daily briefing** — proactive Telegram message with today's summary
 - **Weekly review** — AI-generated summary of the week's captures and patterns
-- **Vector memory** — semantic search over past captures using pgvector (Phase 15+)
+- **Vector memory** — semantic search over past captures using pgvector (Phase 15b+)
 
 ---
 

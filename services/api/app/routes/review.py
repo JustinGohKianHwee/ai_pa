@@ -11,7 +11,7 @@ from app.routes.calendar import CalendarIntentResponse
 from app.routes.finance import MoneyEventResponse
 from app.routes.food import FoodLogResponse
 from app.routes.tasks import TaskResponse
-from app.security import require_dev_admin_token
+from app.security import require_user
 from app.services.classifier import _ITEM_TYPE_SCHEMAS
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
@@ -497,7 +497,7 @@ def _confirm_calendar(client: Client, inbox_id: str, item: dict) -> ConfirmCalen
 
 @router.patch(
     "/{inbox_id}/confirm",
-    dependencies=[Depends(require_dev_admin_token)],
+    dependencies=[Depends(require_user)],
     response_model=None,
 )
 def confirm_inbox_item(
@@ -592,7 +592,7 @@ def confirm_inbox_item(
     return ReviewedItemResponse(**updated.data[0])
 
 
-@router.patch("/{inbox_id}/reject", dependencies=[Depends(require_dev_admin_token)])
+@router.patch("/{inbox_id}/reject", dependencies=[Depends(require_user)])
 def reject_inbox_item(inbox_id: str) -> ReviewedItemResponse:
     try:
         client = get_supabase_client()
@@ -646,7 +646,7 @@ def reject_inbox_item(inbox_id: str) -> ReviewedItemResponse:
     return ReviewedItemResponse(**updated.data[0])
 
 
-@router.patch("/{inbox_id}", dependencies=[Depends(require_dev_admin_token)])
+@router.patch("/{inbox_id}", dependencies=[Depends(require_user)])
 def edit_inbox_item(inbox_id: str, req: EditInboxItemRequest) -> ReviewedItemResponse:
     try:
         client = get_supabase_client()
