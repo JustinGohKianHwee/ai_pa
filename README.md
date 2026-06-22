@@ -90,7 +90,28 @@ Milestones: **Phase 6** — classification end-to-end. **Phase 7** — review la
 MVP (tasks + atomic confirm). **Phase 9** — finance expenses. **Phase 10** — voice transcription.
 **Phase 11** — food logs. **Phase 12** — calendar intents. **Phase 13** — daily review.
 **Phase 14** — read-only portfolio. **Phase 14.5** — normalized snapshots.
-**Phase 15a** — authentication + RLS.
+**Phase 15a** — authentication + RLS. **Phase 15b** — memory-ready foundation
+(`owner_id` + `memory_events`). **Phase 15c** — UI revamp (dark-first data-cockpit).
+
+---
+
+## Deployment (Phase 16)
+
+Production runs the frontend on **Vercel** and the backend on **Render**, reusing the existing
+Supabase project. Full runbook: `docs/phase-16-plan.md`.
+
+- **Frontend (Vercel):** root `apps/web`; env `NEXT_PUBLIC_API_URL` (the Render URL),
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- **Backend (Render):** root `services/api`; build `pip install -r requirements.txt`; start
+  `uvicorn app.main:app --host 0.0.0.0 --port $PORT`; Python pinned via `runtime.txt`. Env:
+  Supabase keys, `OWNER_USER_ID`, `OPENAI_API_KEY`, `TELEGRAM_*`, `USER_TIMEZONE`,
+  `PORTFOLIO_BROKER_TIMEOUT`, and `TIGER_PROPS_PATH` (a Render Secret File directory). Leave
+  `IBKR_ENABLED` unset — IBKR's local gateway can't run on a PaaS, so production portfolio is
+  Tiger-only.
+- **Telegram:** re-register the webhook to `https://<render-url>/telegram/webhook`.
+- **Supabase:** set Auth Site URL to the Vercel domain; sign-ups stay disabled.
+- Scheduled 7am snapshots are deferred on the free tier (use the manual "Snapshot today"
+  button); add a Render Cron Job after upgrading to an always-on instance.
 
 ---
 
