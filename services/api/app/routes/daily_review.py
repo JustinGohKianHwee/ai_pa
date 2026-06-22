@@ -23,6 +23,16 @@ class InboxItemSummary(BaseModel):
     reviewed_at: Optional[str] = None
 
 
+class CaptureSummary(BaseModel):
+    capture_id: str
+    source: str
+    captured_at: str
+    inbox_item_id: Optional[str] = None
+    item_type: Optional[str] = None
+    review_status: Optional[str] = None
+    title: Optional[str] = None
+
+
 class ConfirmedByType(BaseModel):
     task: int = 0
     finance: int = 0
@@ -42,10 +52,10 @@ class DailyReviewResponse(BaseModel):
     rejected_count: int
     pending_count: int
     confirmed_by_type: ConfirmedByType
-    captured_items: list[InboxItemSummary]
+    captured_items: list[CaptureSummary]
     confirmed_items: list[InboxItemSummary]
     rejected_items: list[InboxItemSummary]
-    pending_items: list[InboxItemSummary]
+    pending_items: list[CaptureSummary]
     summary: str
 
 
@@ -160,7 +170,7 @@ def get_daily_review(
     # Extract inbox_items embedded in each capture_event row.
     # PostgREST may return a one-to-one FK as either a single dict or a list;
     # normalise to a single dict or None before extracting.
-    captured_items: list[InboxItemSummary] = []
+    captured_items: list[CaptureSummary] = []
     for row in cap_result.data:
         raw = row.get("inbox_items")
         if isinstance(raw, list):
@@ -171,24 +181,22 @@ def get_daily_review(
             inbox_dict = None  # None or unexpected shape → orphaned capture
 
         if inbox_dict:
-            captured_items.append(InboxItemSummary(
-                id=inbox_dict["id"],
+            captured_items.append(CaptureSummary(
+                capture_id=row["id"],
+                source=row["source"],
+                captured_at=row["created_at"],
+                inbox_item_id=inbox_dict["id"],
                 item_type=inbox_dict["item_type"],
                 review_status=inbox_dict["review_status"],
                 title=inbox_dict.get("title"),
-                created_at=row["created_at"],  # outer capture timestamp, not inbox_item's
-                reviewed_at=inbox_dict.get("reviewed_at"),
             ))
         else:
-            # Capture with no linked inbox item (e.g. partial-failure recovery path).
+            # Capture with no linked inbox item (partial-failure recovery path).
             # Include it so captured_count and captured_items remain consistent.
-            captured_items.append(InboxItemSummary(
-                id=row["id"],
-                item_type="unknown",
-                review_status="orphaned",
-                title=None,
-                created_at=row["created_at"],
-                reviewed_at=None,
+            captured_items.append(CaptureSummary(
+                capture_id=row["id"],
+                source=row["source"],
+                captured_at=row["created_at"],
             ))
 
     pending_items = [

@@ -533,12 +533,14 @@ def test_daily_review_handles_dict_inbox_items_shape(monkeypatch):
     body = response.json()
     assert body["captured_count"] == 1
     assert len(body["captured_items"]) == 1
-    assert body["captured_items"][0]["id"] == "inbox-uuid-1"
-    assert body["captured_items"][0]["item_type"] == "task"
+    item = body["captured_items"][0]
+    assert item["capture_id"] == "cap-uuid-1"
+    assert item["inbox_item_id"] == "inbox-uuid-1"
+    assert item["item_type"] == "task"
 
 
 def test_daily_review_captured_items_use_capture_event_timestamp(monkeypatch):
-    """captured_items[].created_at must be the outer capture_event timestamp."""
+    """captured_items[].captured_at must be the outer capture_event timestamp."""
     monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
     monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
     mock, _, _ = _make_daily_review_mock([CAPTURE_ROW_TASK], [], [])
@@ -547,7 +549,7 @@ def test_daily_review_captured_items_use_capture_event_timestamp(monkeypatch):
     body = response.json()
     assert len(body["captured_items"]) == 1
     # Capture event created_at (04:00:00), not inbox_item created_at (04:00:01).
-    assert body["captured_items"][0]["created_at"] == CAPTURE_ROW_TASK["created_at"]
+    assert body["captured_items"][0]["captured_at"] == CAPTURE_ROW_TASK["created_at"]
 
 
 def test_daily_review_orphaned_capture_in_count_and_list(monkeypatch):
@@ -561,8 +563,9 @@ def test_daily_review_orphaned_capture_in_count_and_list(monkeypatch):
     assert body["captured_count"] == 1
     assert len(body["captured_items"]) == 1
     item = body["captured_items"][0]
-    assert item["id"] == "cap-uuid-orphan"
-    assert item["review_status"] == "orphaned"
-    assert item["created_at"] == CAPTURE_ROW_NO_INBOX["created_at"]
+    assert item["capture_id"] == "cap-uuid-orphan"
+    assert item["inbox_item_id"] is None
+    assert item["review_status"] is None
+    assert item["captured_at"] == CAPTURE_ROW_NO_INBOX["created_at"]
     # Orphaned captures are not pending review.
     assert body["pending_count"] == 0

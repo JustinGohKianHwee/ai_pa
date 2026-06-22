@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { DailyReview, InboxItemSummary } from "./types";
+import type { CaptureSummary, DailyReview, InboxItemSummary } from "./types";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +86,28 @@ function ReviewItemCard({
       </div>
       <p className="text-xs text-gray-400 mt-2">
         {timestampLabel}: {formatDate(timestamp, timeZone)}
+      </p>
+    </div>
+  );
+}
+
+function CaptureItemCard({
+  item,
+  timeZone,
+}: {
+  item: CaptureSummary;
+  timeZone: string;
+}) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm text-gray-800 leading-snug">
+          {item.title ?? <span className="italic text-gray-400">Untitled</span>}
+        </p>
+        <ItemTypeBadge type={item.item_type ?? "unknown"} />
+      </div>
+      <p className="text-xs text-gray-400 mt-2">
+        captured: {formatDate(item.captured_at, timeZone)}
       </p>
     </div>
   );
@@ -185,11 +207,9 @@ export default async function ReviewPage() {
                   Pending review
                 </h2>
                 {data.pending_items.map((item) => (
-                  <ReviewItemCard
-                    key={item.id}
+                  <CaptureItemCard
+                    key={item.capture_id}
                     item={item}
-                    timestampLabel="captured"
-                    timestamp={item.created_at}
                     timeZone={data.timezone}
                   />
                 ))}
