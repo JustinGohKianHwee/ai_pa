@@ -10,57 +10,41 @@ import type {
   Portfolio,
 } from "./types";
 import { authedFetch } from "@/lib/api";
-import { fmtMoney, fmtNum } from "./format";
+import { fmtMoney, fmtNum, fmtDateTime, type Tone } from "@/lib/format";
+import { PageContainer, PageHeader, Badge, SectionLabel } from "@/components/ui";
 import { SnapshotButton } from "./SnapshotButton";
 
 export const dynamic = "force-dynamic";
 
 async function getPortfolio(): Promise<Portfolio> {
-  const res = await authedFetch("/portfolio", {
-    cache: "no-store",
-  });
-
+  const res = await authedFetch("/portfolio", { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Backend returned ${res.status}: ${res.statusText}`);
   }
-
   return res.json();
-}
-
-function fmtTime(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString("en-SG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
 }
 
 const BROKER_LABELS: Record<string, string> = {
   ibkr: "Interactive Brokers",
   tiger: "Tiger Brokers",
 };
-
 function brokerLabel(broker: string): string {
   return BROKER_LABELS[broker] ?? broker;
 }
 
-const STATUS_META: Record<BrokerStatus, { label: string; cls: string }> = {
-  ok: { label: "Connected", cls: "bg-green-100 text-green-800" },
-  auth_error: { label: "Session expired", cls: "bg-red-100 text-red-800" },
-  timeout: { label: "Timed out", cls: "bg-amber-100 text-amber-800" },
-  unavailable: { label: "Unavailable", cls: "bg-amber-100 text-amber-800" },
-  malformed_response: { label: "Unexpected response", cls: "bg-red-100 text-red-800" },
-  not_configured: { label: "Not configured", cls: "bg-gray-100 text-gray-600" },
-  error: { label: "Error", cls: "bg-red-100 text-red-800" },
+const STATUS_META: Record<BrokerStatus, { label: string; tone: Tone }> = {
+  ok: { label: "Connected", tone: "positive" },
+  auth_error: { label: "Session expired", tone: "negative" },
+  timeout: { label: "Timed out", tone: "warning" },
+  unavailable: { label: "Unavailable", tone: "warning" },
+  malformed_response: { label: "Unexpected response", tone: "negative" },
+  not_configured: { label: "Not configured", tone: "neutral" },
+  error: { label: "Error", tone: "negative" },
 };
 
 function StatusBadge({ status }: { status: BrokerStatus }) {
   const meta = STATUS_META[status] ?? STATUS_META.error;
-  return (
-    <span className={`shrink-0 text-xs font-medium px-2.5 py-1 rounded-full ${meta.cls}`}>
-      {meta.label}
-    </span>
-  );
+  return <Badge tone={meta.tone}>{meta.label}</Badge>;
 }
 
 const PNL_SOURCE_LABELS: Record<PnlSource, string> = {
@@ -79,13 +63,14 @@ function TodayPnl({
   currency: string;
 }) {
   if (value === null || source === "unavailable") {
-    return <span className="text-gray-400">today&apos;s P&amp;L unavailable</span>;
+    return <span className="text-faint">today&apos;s P&amp;L unavailable</span>;
   }
-  const tone = value >= 0 ? "text-green-700" : "text-red-700";
   return (
     <span>
-      <span className={tone}>{fmtMoney(value, currency)}</span>{" "}
-      <span className="text-gray-400 text-xs">({PNL_SOURCE_LABELS[source]})</span>
+      <span className={`numeric ${value >= 0 ? "text-positive" : "text-negative"}`}>
+        {fmtMoney(value, currency)}
+      </span>{" "}
+      <span className="text-xs text-faint">({PNL_SOURCE_LABELS[source]})</span>
     </span>
   );
 }
@@ -100,20 +85,22 @@ const QUOTE_LABELS: Record<string, string> = {
 
 function PositionRow({ p }: { p: Position }) {
   const quoteLabel = QUOTE_LABELS[p.quote_status] ?? "";
+  const upnlTone =
+    p.unrealized_pnl == null ? "text-faint" : p.unrealized_pnl >= 0 ? "text-positive" : "text-negative";
   return (
-    <div className="flex items-start justify-between gap-3 py-2 border-b border-gray-100 last:border-0">
+    <div className="flex items-start justify-between gap-3 border-b border-border py-2.5 last:border-0">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-gray-800">{p.symbol}</p>
-        <p className="text-xs text-gray-400">
+        <p className="text-sm font-medium text-fg">{p.symbol}</p>
+        <p className="numeric text-xs text-faint">
           {fmtNum(p.quantity)} @ {fmtMoney(p.average_cost, p.currency)}
           {p.asset_class ? ` · ${p.asset_class}` : ""}
           {quoteLabel ? ` · ${quoteLabel}` : ""}
         </p>
       </div>
-      <div className="text-right shrink-0">
-        <p className="text-sm text-gray-800">{fmtMoney(p.market_value, p.currency)}</p>
-        <p className="text-xs text-gray-400">
-          unrealized {fmtMoney(p.unrealized_pnl, p.currency)}
+      <div className="shrink-0 text-right">
+        <p className="numeric text-sm text-fg">{fmtMoney(p.market_value, p.currency)}</p>
+        <p className={`numeric text-xs ${upnlTone}`}>
+          {fmtMoney(p.unrealized_pnl, p.currency)}
         </p>
       </div>
     </div>
@@ -130,37 +117,47 @@ function AccountCard({
   cash: CashBalance[];
 }) {
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+    <div className="space-y-3 rounded-lg border border-border bg-surface-raised p-4">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="text-sm font-medium text-gray-700">{account.account_ref}</p>
-        <p className="text-xs text-gray-400">
-          Net liq: {fmtMoney(account.net_liquidation, account.currency ?? "")}
+        <p className="text-sm font-medium text-fg">{account.account_ref}</p>
+        <p className="text-xs text-faint">
+          Net liq:{" "}
+          <span className="numeric text-muted">
+            {fmtMoney(account.net_liquidation, account.currency ?? "")}
+          </span>
         </p>
       </div>
-      <p className="text-xs text-gray-500">
-        Today: <TodayPnl value={account.today_pnl} source={account.today_pnl_source} currency={account.currency ?? ""} />
+      <p className="text-xs text-muted">
+        Today:{" "}
+        <TodayPnl
+          value={account.today_pnl}
+          source={account.today_pnl_source}
+          currency={account.currency ?? ""}
+        />
       </p>
 
       {positions.length > 0 ? (
-        <div>{positions.map((p, i) => <PositionRow key={i} p={p} />)}</div>
+        <div>
+          {positions.map((p, i) => (
+            <PositionRow key={i} p={p} />
+          ))}
+        </div>
       ) : (
-        <p className="text-xs text-gray-400 italic">No positions.</p>
+        <p className="text-xs italic text-faint">No positions.</p>
       )}
 
-      {cash.length > 0 && (
+      {cash.length > 0 ? (
         <div className="pt-1">
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
-            Cash
-          </p>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wider text-faint">Cash</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             {cash.map((c, i) => (
-              <span key={i} className="text-xs text-gray-600">
+              <span key={i} className="numeric text-xs text-muted">
                 {fmtMoney(c.amount, c.currency)}
               </span>
             ))}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -169,17 +166,16 @@ function BrokerSection({ broker }: { broker: BrokerResult }) {
   const accounts = broker.accounts;
   const positionsByAccount = (ref: string) =>
     broker.positions.filter((p) => p.account_ref === ref);
-  const cashByAccount = (ref: string) =>
-    broker.cash.filter((c) => c.account_ref === ref);
+  const cashByAccount = (ref: string) => broker.cash.filter((c) => c.account_ref === ref);
 
   return (
-    <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
+    <section className="space-y-4 rounded-xl border border-border bg-surface p-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="font-medium text-gray-900">{brokerLabel(broker.broker)}</h2>
-          {broker.as_of && (
-            <p className="text-xs text-gray-400 mt-0.5">As of {fmtTime(broker.as_of)}</p>
-          )}
+          <h2 className="font-medium text-fg">{brokerLabel(broker.broker)}</h2>
+          {broker.as_of ? (
+            <p className="mt-0.5 text-xs text-faint">As of {fmtDateTime(broker.as_of)}</p>
+          ) : null}
         </div>
         <StatusBadge status={broker.status} />
       </div>
@@ -197,10 +193,10 @@ function BrokerSection({ broker }: { broker: BrokerResult }) {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-400 italic">No accounts returned.</p>
+          <p className="text-sm italic text-faint">No accounts returned.</p>
         )
       ) : (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted">
           {broker.status === "not_configured"
             ? "This broker is not configured. Add its credentials to the backend .env.local."
             : `Could not load data (${broker.error ?? broker.status}). Other brokers are unaffected.`}
@@ -212,24 +208,24 @@ function BrokerSection({ broker }: { broker: BrokerResult }) {
 
 function TotalRow({ t }: { t: CurrencyTotal }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 py-2 border-b border-gray-100 last:border-0">
-      <span className="text-sm font-medium text-gray-700">{t.currency}</span>
+    <div className="flex items-baseline justify-between gap-3 border-b border-border py-2.5 last:border-0">
+      <span className="text-sm font-medium text-fg">{t.currency}</span>
       <div className="text-right">
-        <p className="text-sm text-gray-800">
+        <p className="numeric text-sm text-fg">
           {fmtMoney(t.market_value, t.currency)}
-          {!t.market_value_complete && (
-            <span className="text-amber-600 text-xs ml-1">
+          {!t.market_value_complete ? (
+            <span className="ml-1 text-xs text-warning">
               (subtotal — {t.market_value_missing} missing)
             </span>
-          )}
+          ) : null}
         </p>
-        <p className="text-xs text-gray-400">
+        <p className="numeric text-xs text-faint">
           unrealized {fmtMoney(t.unrealized_pnl, t.currency)}
-          {!t.unrealized_pnl_complete && (
-            <span className="text-amber-600 ml-1">
+          {!t.unrealized_pnl_complete ? (
+            <span className="ml-1 text-warning">
               (subtotal — {t.unrealized_pnl_missing} missing)
             </span>
-          )}
+          ) : null}
         </p>
       </div>
     </div>
@@ -240,58 +236,47 @@ export default async function PortfolioPage() {
   const data = await getPortfolio();
 
   return (
-    <main className="min-h-screen bg-gray-50 py-10 px-4">
-      <div className="max-w-2xl mx-auto space-y-6">
-        <div>
-          <Link href="/" className="text-sm text-gray-400 hover:text-gray-600">
-            ← Home
-          </Link>
-          <div className="flex items-baseline gap-3 mt-2">
-            <h1 className="text-2xl font-semibold text-gray-900">Portfolio</h1>
-            <span className="text-xs text-gray-400">
-              Updated {fmtTime(data.generated_at)}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-gray-400">
-            Read-only. Refresh the page to fetch the latest broker data.
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
+    <PageContainer>
+      <PageHeader
+        title="Portfolio"
+        subtitle={`Read-only · updated ${fmtDateTime(data.generated_at)}`}
+        actions={
+          <>
             <SnapshotButton />
             <Link
               href="/portfolio/history"
-              className="text-sm text-gray-500 hover:text-gray-900"
+              className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-surface-raised hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              History →
+              History
             </Link>
-          </div>
-        </div>
+          </>
+        }
+      />
 
-        {data.partial_failure && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+      <div className="space-y-6">
+        {data.partial_failure ? (
+          <div className="rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-warning">
             Some brokers could not be reached. Figures below reflect only the brokers that
             responded successfully.
           </div>
-        )}
+        ) : null}
 
-        {data.totals_by_currency.length > 0 && (
-          <section className="bg-white border border-gray-200 rounded-xl p-6">
-            <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
-              Totals by currency
-            </h2>
-            <p className="text-xs text-gray-400 mb-3">
-              Grouped per currency across connected brokers. Currencies are never added
-              together.
+        {data.totals_by_currency.length > 0 ? (
+          <section className="rounded-xl border border-border bg-surface p-6">
+            <SectionLabel>Totals by currency</SectionLabel>
+            <p className="-mt-2 mb-3 text-xs text-faint">
+              Grouped per currency across connected brokers. Currencies are never added together.
             </p>
             {data.totals_by_currency.map((t) => (
               <TotalRow key={t.currency} t={t} />
             ))}
           </section>
-        )}
+        ) : null}
 
         {data.brokers.map((b) => (
           <BrokerSection key={b.broker} broker={b} />
         ))}
       </div>
-    </main>
+    </PageContainer>
   );
 }

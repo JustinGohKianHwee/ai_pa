@@ -1,137 +1,213 @@
 import Link from "next/link";
-import { logout } from "./logout/actions";
+import { ArrowUpRight } from "lucide-react";
+import { authedFetch } from "@/lib/api";
+import { PageContainer, PageHeader, BentoGrid, MetricTile } from "@/components/ui";
+import { Sparkline } from "@/components/Sparkline";
+import { fmtMoney, fmtInt, fmtSignedMoney, pnlTone } from "@/lib/format";
+import type { TasksResponse } from "./tasks/types";
+import type { MoneyEventsResponse } from "./finance/types";
+import type { FoodLogsResponse } from "./food/types";
+import type { CalendarIntentsResponse } from "./calendar/types";
+import type { InboxResponse } from "./inbox/types";
+import type { DailyReview } from "./review/types";
+import type { SnapshotListResponse } from "./portfolio/snapshot-types";
 
-export default function Home() {
-  const pipeline = [
-    { label: "Capture", detail: "Telegram text → raw capture_event stored" },
-    { label: "Classify & extract", detail: "OpenAI assigns type and structured data (Phase 6)" },
-    { label: "Pending inbox", detail: "Awaiting your review" },
-    { label: "Review", detail: "Confirm or reject each item (Phase 7)" },
-    { label: "Domain record", detail: "Confirmed tasks, expenses, food logs & calendar intents become records (Phase 8–12)", active: true },
-  ];
+export const dynamic = "force-dynamic";
+
+interface HistoryPoint {
+  snapshot_date: string;
+  total_value: number;
+}
+
+// Fetch helper that degrades to null on failure but lets auth redirects propagate.
+async function getJson<T>(path: string): Promise<T | null> {
+  try {
+    const res = await authedFetch(path, { cache: "no-store" });
+    return res.ok ? ((await res.json()) as T) : null;
+  } catch (e) {
+    const digest = (e as { digest?: string })?.digest;
+    if (typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")) throw e;
+    return null;
+  }
+}
+
+export default async function DashboardPage() {
+  const [snapshots, tasks, finance, food, calendar, inbox, review] = await Promise.all([
+    getJson<SnapshotListResponse>("/portfolio/snapshots"),
+    getJson<TasksResponse>("/tasks"),
+    getJson<MoneyEventsResponse>("/money_events"),
+    getJson<FoodLogsResponse>("/food_logs?date=today"),
+    getJson<CalendarIntentsResponse>("/calendar_intents"),
+    getJson<InboxResponse>("/inbox"),
+    getJson<DailyReview>("/daily_review"),
+  ]);
+
+  // Portfolio tile — latest snapshot + value sparkline (fast, DB-only).
+  const latest = snapshots?.items?.[0] ?? null;
+  const totalsSorted =
+    latest?.currency_totals?.slice().sort((a, b) => b.total_value - a.total_value) ?? [];
+  const primary = totalsSorted[0] ?? null;
+  const history = primary
+    ? await getJson<HistoryPoint[]>(
+        `/portfolio/snapshots/history?currency=${encodeURIComponent(primary.currency)}`
+      )
+    : null;
+  const series = (history ?? []).map((p) => p.total_value);
+  const delta =
+    series.length >= 2 ? series[series.length - 1] - series[series.length - 2] : null;
+  const deltaTone = pnlTone(delta);
+
+  const openTasks = tasks?.items?.filter((t) => t.status === "open").length ?? null;
+  const spend = finance?.totals_by_currency ?? [];
+  const mealsToday = food?.total ?? null;
+  const upcoming = calendar?.items ?? [];
+  const pending = inbox?.total ?? null;
+
+  const today = new Date().toLocaleDateString("en-SG", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
 
   return (
-    <main className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-8">
-      <div className="max-w-lg w-full space-y-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-          <div className="mb-6">
-            <span className="inline-block bg-green-100 text-green-800 text-xs font-medium px-2.5 py-1 rounded-full">
-              Phase 14 — Portfolio
-            </span>
-          </div>
+    <PageContainer className="max-w-6xl">
+      <PageHeader title="Dashboard" subtitle={today} />
 
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">
-            AI Personal Assistant
-          </h1>
-          <p className="text-gray-500 text-sm">
-            Private review-first personal operating system.
-          </p>
-          <form action={logout} className="mt-5">
-            <button
-              type="submit"
-              className="text-sm text-gray-500 hover:text-gray-900"
-            >
-              Logout
-            </button>
-          </form>
-        </div>
-
-        <Link
-          href="/inbox"
-          className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-gray-300 hover:shadow transition group"
-        >
-          <div>
-            <p className="font-medium text-gray-900 group-hover:text-gray-700">Inbox</p>
-            <p className="text-sm text-gray-400 mt-0.5">Pending items awaiting review</p>
-          </div>
-          <span className="text-gray-300 group-hover:text-gray-400 text-lg">→</span>
-        </Link>
-
-        <Link
-          href="/tasks"
-          className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-gray-300 hover:shadow transition group"
-        >
-          <div>
-            <p className="font-medium text-gray-900 group-hover:text-gray-700">Tasks</p>
-            <p className="text-sm text-gray-400 mt-0.5">Confirmed tasks, grouped by urgency</p>
-          </div>
-          <span className="text-gray-300 group-hover:text-gray-400 text-lg">→</span>
-        </Link>
-
-        <Link
-          href="/finance"
-          className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-gray-300 hover:shadow transition group"
-        >
-          <div>
-            <p className="font-medium text-gray-900 group-hover:text-gray-700">Finance</p>
-            <p className="text-sm text-gray-400 mt-0.5">Confirmed expenses, totals by currency</p>
-          </div>
-          <span className="text-gray-300 group-hover:text-gray-400 text-lg">→</span>
-        </Link>
-
-        <Link
-          href="/food"
-          className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-gray-300 hover:shadow transition group"
-        >
-          <div>
-            <p className="font-medium text-gray-900 group-hover:text-gray-700">Food</p>
-            <p className="text-sm text-gray-400 mt-0.5">Today&apos;s meals</p>
-          </div>
-          <span className="text-gray-300 group-hover:text-gray-400 text-lg">→</span>
-        </Link>
-
-        <Link
-          href="/calendar"
-          className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-gray-300 hover:shadow transition group"
-        >
-          <div>
-            <p className="font-medium text-gray-900 group-hover:text-gray-700">Calendar</p>
-            <p className="text-sm text-gray-400 mt-0.5">Confirmed intentions</p>
-          </div>
-          <span className="text-gray-300 group-hover:text-gray-400 text-lg">→</span>
-        </Link>
-
-        <Link
-          href="/review"
-          className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-gray-300 hover:shadow transition group"
-        >
-          <div>
-            <p className="font-medium text-gray-900 group-hover:text-gray-700">Review</p>
-            <p className="text-sm text-gray-400 mt-0.5">Today&apos;s activity summary</p>
-          </div>
-          <span className="text-gray-300 group-hover:text-gray-400 text-lg">→</span>
-        </Link>
-
+      <BentoGrid>
+        {/* Portfolio — signature tile */}
         <Link
           href="/portfolio"
-          className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-gray-300 hover:shadow transition group"
+          className="group col-span-2 flex flex-col rounded-xl border border-border bg-surface p-5 transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:row-span-2"
         >
-          <div>
-            <p className="font-medium text-gray-900 group-hover:text-gray-700">Portfolio</p>
-            <p className="text-sm text-gray-400 mt-0.5">Positions across Tiger &amp; IBKR (read-only)</p>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium uppercase tracking-wider text-faint">
+              Portfolio
+            </span>
+            <ArrowUpRight size={16} className="text-faint group-hover:text-fg" aria-hidden />
           </div>
-          <span className="text-gray-300 group-hover:text-gray-400 text-lg">→</span>
+
+          {primary ? (
+            <>
+              <p className="numeric mt-3 text-3xl font-medium text-fg">
+                {fmtMoney(primary.total_value, primary.currency)}
+              </p>
+              {delta !== null ? (
+                <p
+                  className={`numeric mt-1 text-sm ${
+                    deltaTone === "positive"
+                      ? "text-positive"
+                      : deltaTone === "negative"
+                        ? "text-negative"
+                        : "text-muted"
+                  }`}
+                >
+                  {fmtSignedMoney(delta, primary.currency)} since last
+                </p>
+              ) : null}
+              {series.length >= 2 ? (
+                <div className="mt-4">
+                  <Sparkline values={series} width={260} height={48} className="w-full" />
+                </div>
+              ) : null}
+              <div className="mt-auto space-y-1.5 pt-4">
+                {totalsSorted.map((c) => (
+                  <div key={c.currency} className="flex items-center justify-between text-sm">
+                    <span className="text-muted">{c.currency}</span>
+                    <span className="numeric text-fg">{fmtMoney(c.total_value, c.currency)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="mt-3 flex flex-1 flex-col justify-center text-sm text-muted">
+              <p>No snapshot yet.</p>
+              <p className="mt-1 text-faint">Take one from the Portfolio page.</p>
+            </div>
+          )}
         </Link>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-4">
-            Pipeline
-          </h2>
-          <ol className="space-y-2.5">
-            {pipeline.map((step, i) => (
-              <li key={i} className="flex gap-3 text-sm">
-                <span className="text-gray-300 font-mono shrink-0 w-4">{i + 1}.</span>
-                <span>
-                  <span className={step.active ? "font-medium text-gray-900" : "text-gray-500"}>
-                    {step.label}
-                  </span>
-                  <span className="text-gray-400 ml-1.5">— {step.detail}</span>
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </div>
-    </main>
+        <MetricTile
+          href="/inbox"
+          label="Inbox"
+          value={pending === null ? "—" : fmtInt(pending)}
+          sub={pending ? "awaiting review" : "all clear"}
+          tone={pending ? "warning" : "neutral"}
+        />
+        <MetricTile
+          href="/tasks"
+          label="Open tasks"
+          value={openTasks === null ? "—" : fmtInt(openTasks)}
+          sub="to do"
+        />
+
+        {/* Review — today's activity */}
+        <Link
+          href="/review"
+          className="group col-span-2 rounded-xl border border-border bg-surface p-5 transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium uppercase tracking-wider text-faint">
+              Today&apos;s activity
+            </span>
+            <ArrowUpRight size={16} className="text-faint group-hover:text-fg" aria-hidden />
+          </div>
+          {review ? (
+            <div className="mt-3 grid grid-cols-3 gap-3">
+              <div>
+                <p className="numeric text-2xl font-medium text-fg">
+                  {fmtInt(review.captured_count)}
+                </p>
+                <p className="mt-0.5 text-xs text-muted">captured</p>
+              </div>
+              <div>
+                <p className="numeric text-2xl font-medium text-positive">
+                  {fmtInt(review.confirmed_count)}
+                </p>
+                <p className="mt-0.5 text-xs text-muted">confirmed</p>
+              </div>
+              <div>
+                <p className="numeric text-2xl font-medium text-warning">
+                  {fmtInt(review.pending_count)}
+                </p>
+                <p className="mt-0.5 text-xs text-muted">pending</p>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted">Review unavailable.</p>
+          )}
+        </Link>
+
+        {/* Finance — spend by currency */}
+        <Link
+          href="/finance"
+          className="group col-span-2 rounded-xl border border-border bg-surface p-5 transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium uppercase tracking-wider text-faint">Spend</span>
+            <ArrowUpRight size={16} className="text-faint group-hover:text-fg" aria-hidden />
+          </div>
+          {spend.length > 0 ? (
+            <div className="mt-3 space-y-1.5">
+              {spend.map((c) => (
+                <div key={c.currency} className="flex items-center justify-between text-sm">
+                  <span className="text-muted">{c.currency}</span>
+                  <span className="numeric text-fg">{fmtMoney(c.total, c.currency)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="numeric mt-3 text-2xl font-medium text-fg">—</p>
+          )}
+        </Link>
+
+        <MetricTile
+          href="/food"
+          label="Meals today"
+          value={mealsToday === null ? "—" : fmtInt(mealsToday)}
+          sub="logged"
+        />
+        <MetricTile href="/calendar" label="Calendar" value={fmtInt(upcoming.length)} sub="intentions" />
+      </BentoGrid>
+    </PageContainer>
   );
 }

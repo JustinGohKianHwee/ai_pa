@@ -1,30 +1,19 @@
-import Link from "next/link";
 import type { CaptureSummary, DailyReview, InboxItemSummary } from "./types";
 import { authedFetch } from "@/lib/api";
+import { PageContainer, PageHeader, EmptyState, Badge, SectionLabel } from "@/components/ui";
+import { fmtDateTime, fmtInt, type Tone } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 async function getDailyReview(): Promise<DailyReview> {
-  const res = await authedFetch("/daily_review?date=today", {
-    cache: "no-store",
-  });
-
+  const res = await authedFetch("/daily_review?date=today", { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Backend returned ${res.status}: ${res.statusText}`);
   }
-
   return res.json();
 }
 
-function formatDate(iso: string, timeZone: string): string {
-  return new Date(iso).toLocaleString("en-SG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone,
-  });
-}
-
-const ITEM_TYPE_LABELS: Record<string, string> = {
+const TYPE_LABELS: Record<string, string> = {
   task: "Task",
   finance: "Finance",
   food: "Food",
@@ -32,83 +21,71 @@ const ITEM_TYPE_LABELS: Record<string, string> = {
   note: "Note",
   journal: "Journal",
   investment: "Investment",
+  other: "Other",
+};
+const TYPE_TONE: Record<string, Tone> = {
+  task: "info",
+  finance: "positive",
+  food: "warning",
+  calendar: "accent",
 };
 
-function itemTypeLabel(type: string): string {
-  return ITEM_TYPE_LABELS[type] ?? "Item";
+function typeLabel(type: string): string {
+  return TYPE_LABELS[type] ?? "Item";
+}
+function typeTone(type: string): Tone {
+  return TYPE_TONE[type] ?? "neutral";
 }
 
-function ItemTypeBadge({ type }: { type: string }) {
-  const colorMap: Record<string, string> = {
-    task: "bg-blue-100 text-blue-800",
-    finance: "bg-emerald-100 text-emerald-800",
-    food: "bg-orange-100 text-orange-800",
-    calendar: "bg-purple-100 text-purple-800",
-    note: "bg-gray-100 text-gray-700",
-    journal: "bg-pink-100 text-pink-800",
-    investment: "bg-yellow-100 text-yellow-800",
-  };
-  const cls = colorMap[type] ?? "bg-gray-100 text-gray-600";
+function StatTile({
+  label,
+  count,
+  tone = "fg",
+}: {
+  label: string;
+  count: number;
+  tone?: "fg" | "positive" | "negative" | "warning";
+}) {
+  const color =
+    tone === "positive"
+      ? "text-positive"
+      : tone === "negative"
+        ? "text-negative"
+        : tone === "warning"
+          ? "text-warning"
+          : "text-fg";
   return (
-    <span className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${cls}`}>
-      {itemTypeLabel(type)}
-    </span>
+    <div className="rounded-xl border border-border bg-surface p-4">
+      <p className={`numeric text-2xl font-medium ${color}`}>{fmtInt(count)}</p>
+      <p className="mt-1 text-xs text-muted">{label}</p>
+    </div>
   );
 }
 
-function ReviewItemCard({
-  item,
-  timestampLabel,
+function ReviewRow({
+  title,
+  type,
+  label,
   timestamp,
   timeZone,
 }: {
-  item: InboxItemSummary;
-  timestampLabel: string;
+  title: string | null;
+  type: string;
+  label: string;
   timestamp: string;
   timeZone: string;
 }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-sm text-gray-800 leading-snug">
-          {item.title ?? <span className="italic text-gray-400">Untitled</span>}
+    <div className="flex items-start justify-between gap-3 rounded-xl border border-border bg-surface p-4">
+      <div className="min-w-0">
+        <p className="text-sm leading-snug text-fg">
+          {title ?? <span className="italic text-faint">Untitled</span>}
         </p>
-        <ItemTypeBadge type={item.item_type} />
-      </div>
-      <p className="text-xs text-gray-400 mt-2">
-        {timestampLabel}: {formatDate(timestamp, timeZone)}
-      </p>
-    </div>
-  );
-}
-
-function CaptureItemCard({
-  item,
-  timeZone,
-}: {
-  item: CaptureSummary;
-  timeZone: string;
-}) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-sm text-gray-800 leading-snug">
-          {item.title ?? <span className="italic text-gray-400">Untitled</span>}
+        <p className="mt-1 text-xs text-faint">
+          {label}: {fmtDateTime(timestamp, timeZone)}
         </p>
-        <ItemTypeBadge type={item.item_type ?? "unknown"} />
       </div>
-      <p className="text-xs text-gray-400 mt-2">
-        captured: {formatDate(item.captured_at, timeZone)}
-      </p>
-    </div>
-  );
-}
-
-function StatBadge({ label, count }: { label: string; count: number }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
-      <p className="text-2xl font-semibold text-gray-900">{count}</p>
-      <p className="text-xs text-gray-400 mt-1">{label}</p>
+      <Badge tone={typeTone(type)}>{typeLabel(type)}</Badge>
     </div>
   );
 }
@@ -117,98 +94,103 @@ export default async function ReviewPage() {
   const data = await getDailyReview();
 
   const isEmpty =
-    data.captured_count === 0 &&
-    data.confirmed_count === 0 &&
-    data.rejected_count === 0;
+    data.captured_count === 0 && data.confirmed_count === 0 && data.rejected_count === 0;
+  const byType = Object.entries(data.confirmed_by_type).filter(([, n]) => n > 0);
 
   return (
-    <main className="min-h-screen bg-gray-50 py-10 px-4">
-      <div className="max-w-2xl mx-auto space-y-6">
-        <div>
-          <Link href="/" className="text-sm text-gray-400 hover:text-gray-600">
-            ← Home
-          </Link>
-          <div className="flex items-baseline gap-3 mt-2">
-            <h1 className="text-2xl font-semibold text-gray-900">
-              Daily Review
-            </h1>
-            <span className="text-sm text-gray-400">{data.review_date}</span>
-            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+    <PageContainer>
+      <PageHeader
+        title="Daily review"
+        subtitle={
+          <span className="flex items-center gap-2">
+            {data.review_date}
+            <Badge tone="neutral" dot={false}>
               {data.timezone}
-            </span>
-          </div>
-          {data.summary && (
-            <p className="mt-2 text-sm text-gray-500 italic">{data.summary}</p>
-          )}
-        </div>
+            </Badge>
+          </span>
+        }
+      />
 
-        <div className="grid grid-cols-4 gap-3">
-          <StatBadge label="Captured" count={data.captured_count} />
-          <StatBadge label="Confirmed" count={data.confirmed_count} />
-          <StatBadge label="Rejected" count={data.rejected_count} />
-          <StatBadge label="Pending" count={data.pending_count} />
-        </div>
+      {data.summary ? <p className="mb-6 text-sm text-muted">{data.summary}</p> : null}
 
-        {isEmpty ? (
-          <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
-            <p className="text-gray-400 text-sm">Nothing captured or reviewed today.</p>
-            <p className="text-gray-400 text-sm mt-1">
-              Send a message via Telegram to get started.
-            </p>
-          </div>
-        ) : (
-          <>
-            {data.confirmed_count > 0 && (
-              <section className="space-y-2">
-                <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-                  Confirmed today
-                </h2>
-                {data.confirmed_items.map((item) => (
-                  <ReviewItemCard
-                    key={item.id}
-                    item={item}
-                    timestampLabel="confirmed"
-                    timestamp={item.reviewed_at!}
-                    timeZone={data.timezone}
-                  />
-                ))}
-              </section>
-            )}
-
-            {data.rejected_count > 0 && (
-              <section className="space-y-2">
-                <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-                  Rejected today
-                </h2>
-                {data.rejected_items.map((item) => (
-                  <ReviewItemCard
-                    key={item.id}
-                    item={item}
-                    timestampLabel="rejected"
-                    timestamp={item.reviewed_at!}
-                    timeZone={data.timezone}
-                  />
-                ))}
-              </section>
-            )}
-
-            {data.pending_count > 0 && (
-              <section className="space-y-2">
-                <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-                  Pending review
-                </h2>
-                {data.pending_items.map((item) => (
-                  <CaptureItemCard
-                    key={item.capture_id}
-                    item={item}
-                    timeZone={data.timezone}
-                  />
-                ))}
-              </section>
-            )}
-          </>
-        )}
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatTile label="captured" count={data.captured_count} />
+        <StatTile label="confirmed" count={data.confirmed_count} tone="positive" />
+        <StatTile label="rejected" count={data.rejected_count} tone="negative" />
+        <StatTile label="pending" count={data.pending_count} tone="warning" />
       </div>
-    </main>
+
+      {byType.length > 0 ? (
+        <div className="mb-8 flex flex-wrap gap-2">
+          {byType.map(([type, count]) => (
+            <Badge key={type} tone={typeTone(type)}>
+              {typeLabel(type)} {count}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+
+      {isEmpty ? (
+        <EmptyState>
+          Nothing captured or reviewed today. Send a message via Telegram to get started.
+        </EmptyState>
+      ) : (
+        <div className="space-y-8">
+          {data.confirmed_count > 0 ? (
+            <section>
+              <SectionLabel>Confirmed today</SectionLabel>
+              <div className="space-y-2">
+                {data.confirmed_items.map((item: InboxItemSummary) => (
+                  <ReviewRow
+                    key={item.id}
+                    title={item.title}
+                    type={item.item_type}
+                    label="confirmed"
+                    timestamp={item.reviewed_at!}
+                    timeZone={data.timezone}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {data.rejected_count > 0 ? (
+            <section>
+              <SectionLabel>Rejected today</SectionLabel>
+              <div className="space-y-2">
+                {data.rejected_items.map((item: InboxItemSummary) => (
+                  <ReviewRow
+                    key={item.id}
+                    title={item.title}
+                    type={item.item_type}
+                    label="rejected"
+                    timestamp={item.reviewed_at!}
+                    timeZone={data.timezone}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {data.pending_count > 0 ? (
+            <section>
+              <SectionLabel>Pending review</SectionLabel>
+              <div className="space-y-2">
+                {data.pending_items.map((item: CaptureSummary) => (
+                  <ReviewRow
+                    key={item.capture_id}
+                    title={item.title}
+                    type={item.item_type ?? "unknown"}
+                    label="captured"
+                    timestamp={item.captured_at}
+                    timeZone={data.timezone}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      )}
+    </PageContainer>
   );
 }

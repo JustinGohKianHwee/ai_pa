@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { confirmItem, editItem, rejectItem, type EditItemPatch } from "./actions";
 import type { InboxItem } from "./types";
+import { Badge } from "@/components/ui";
+import { fmtDateTime } from "@/lib/format";
 
 const VALID_ITEM_TYPES = [
   "task",
@@ -15,40 +17,14 @@ const VALID_ITEM_TYPES = [
   "unknown",
 ];
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("en-SG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
-
-function ItemTypeBadge({ type }: { type: string }) {
-  return (
-    <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
-      {type}
-    </span>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const styles =
-    status === "needs_manual_classification"
-      ? "bg-amber-100 text-amber-700"
-      : "bg-blue-50 text-blue-600";
-  return (
-    <span
-      className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${styles}`}
-    >
-      {status}
-    </span>
-  );
-}
+const inputClass =
+  "w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 interface EditFormState {
   item_type: string;
   title: string;
   body: string;
-  structured_json: string; // raw JSON string for the textarea
+  structured_json: string;
 }
 
 function toEditForm(item: InboxItem): EditFormState {
@@ -73,10 +49,7 @@ export function InboxCard({ item }: { item: InboxItem }) {
   const canReject = isPending_ || needsManual;
 
   const displayText =
-    item.body ||
-    item.capture?.transcript ||
-    item.capture?.raw_text ||
-    "(no text)";
+    item.body || item.capture?.transcript || item.capture?.raw_text || "(no text)";
   const hasStructuredData = Object.keys(item.structured_json).length > 0;
 
   function handleConfirm() {
@@ -84,11 +57,11 @@ export function InboxCard({ item }: { item: InboxItem }) {
     startTransition(async () => {
       const result = await confirmItem(item.id);
       if (!result.ok) {
-        const detail =
+        setActionError(
           typeof result.data?.detail === "string"
             ? result.data.detail
-            : `Confirm failed (${result.status})`;
-        setActionError(detail);
+            : `Confirm failed (${result.status})`
+        );
       }
     });
   }
@@ -98,11 +71,11 @@ export function InboxCard({ item }: { item: InboxItem }) {
     startTransition(async () => {
       const result = await rejectItem(item.id);
       if (!result.ok) {
-        const detail =
+        setActionError(
           typeof result.data?.detail === "string"
             ? result.data.detail
-            : `Reject failed (${result.status})`;
-        setActionError(detail);
+            : `Reject failed (${result.status})`
+        );
       }
     });
   }
@@ -133,8 +106,6 @@ export function InboxCard({ item }: { item: InboxItem }) {
     if (editForm.item_type !== item.item_type) patch.item_type = editForm.item_type;
     if (editForm.title !== (item.title ?? "")) patch.title = editForm.title;
     if (editForm.body !== (item.body ?? "")) patch.body = editForm.body;
-    // Compare normalized JSON, not the raw textarea string — otherwise pretty-print
-    // whitespace makes an unchanged object look edited and re-sends it every time.
     if (JSON.stringify(parsedJson) !== JSON.stringify(item.structured_json)) {
       patch.structured_json = parsedJson;
     }
@@ -149,60 +120,53 @@ export function InboxCard({ item }: { item: InboxItem }) {
       if (result.ok) {
         setIsEditing(false);
       } else {
-        const detail =
+        setEditError(
           typeof result.data?.detail === "string"
             ? result.data.detail
-            : `Edit failed (${result.status})`;
-        setEditError(detail);
+            : `Edit failed (${result.status})`
+        );
       }
     });
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
-      {/* Header row */}
+    <div className="space-y-3 rounded-xl border border-border bg-surface p-5">
       <div className="flex items-start justify-between gap-3">
-        <p className="font-medium text-gray-900 leading-snug">
+        <p className="font-medium leading-snug text-fg">
           {item.title ?? displayText.slice(0, 80)}
         </p>
-        <div className="flex gap-1.5 shrink-0">
-          <ItemTypeBadge type={item.item_type} />
-          <StatusBadge status={item.review_status} />
+        <div className="flex shrink-0 gap-1.5">
+          <Badge tone="neutral" dot={false}>
+            {item.item_type}
+          </Badge>
+          <Badge tone={needsManual ? "warning" : "info"}>{item.review_status}</Badge>
         </div>
       </div>
 
-      {/* Manual classification warning */}
-      {needsManual && (
-        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+      {needsManual ? (
+        <p className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-warning">
           Classification failed — edit the item below to correct the type and data.
         </p>
-      )}
+      ) : null}
 
-      {/* Body text */}
-      {item.body && item.title && item.body !== item.title && (
-        <p className="text-sm text-gray-500 leading-relaxed">{item.body}</p>
-      )}
+      {item.body && item.title && item.body !== item.title ? (
+        <p className="text-sm leading-relaxed text-muted">{item.body}</p>
+      ) : null}
 
-      {/* Structured JSON (read mode) */}
-      {hasStructuredData && !isEditing && (
-        <pre className="text-xs bg-gray-50 border border-gray-100 rounded p-3 overflow-x-auto text-gray-600 leading-relaxed">
+      {hasStructuredData && !isEditing ? (
+        <pre className="numeric overflow-x-auto rounded-lg border border-border bg-bg p-3 text-xs leading-relaxed text-muted">
           {JSON.stringify(item.structured_json, null, 2)}
         </pre>
-      )}
+      ) : null}
 
-      {/* Edit form */}
-      {isEditing && (
-        <div className="space-y-3 border border-gray-200 rounded-lg p-4 bg-gray-50">
+      {isEditing ? (
+        <div className="space-y-3 rounded-lg border border-border bg-surface-raised p-4">
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-600">
-              Type
-            </label>
+            <label className="block text-xs font-medium text-muted">Type</label>
             <select
-              className="w-full text-sm border border-gray-300 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className={inputClass}
               value={editForm.item_type}
-              onChange={(e) =>
-                setEditForm((f) => ({ ...f, item_type: e.target.value }))
-              }
+              onChange={(e) => setEditForm((f) => ({ ...f, item_type: e.target.value }))}
             >
               {VALID_ITEM_TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -213,40 +177,30 @@ export function InboxCard({ item }: { item: InboxItem }) {
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-600">
-              Title
-            </label>
+            <label className="block text-xs font-medium text-muted">Title</label>
             <input
               type="text"
-              className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className={inputClass}
               value={editForm.title}
-              onChange={(e) =>
-                setEditForm((f) => ({ ...f, title: e.target.value }))
-              }
+              onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
             />
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-600">
-              Body
-            </label>
+            <label className="block text-xs font-medium text-muted">Body</label>
             <textarea
               rows={2}
-              className="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className={inputClass}
               value={editForm.body}
-              onChange={(e) =>
-                setEditForm((f) => ({ ...f, body: e.target.value }))
-              }
+              onChange={(e) => setEditForm((f) => ({ ...f, body: e.target.value }))}
             />
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-600">
-              Structured JSON
-            </label>
+            <label className="block text-xs font-medium text-muted">Structured JSON</label>
             <textarea
               rows={6}
-              className="w-full font-mono text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className={`${inputClass} numeric`}
               value={editForm.structured_json}
               onChange={(e) =>
                 setEditForm((f) => ({ ...f, structured_json: e.target.value }))
@@ -254,74 +208,72 @@ export function InboxCard({ item }: { item: InboxItem }) {
             />
           </div>
 
-          {editError && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+          {editError ? (
+            <p className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-negative">
               {editError}
             </p>
-          )}
+          ) : null}
 
           <div className="flex gap-2">
             <button
               onClick={handleEditSave}
               disabled={isPending}
-              className="px-3 py-1.5 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
             >
               {isPending ? "Saving…" : "Save"}
             </button>
             <button
               onClick={handleEditCancel}
               disabled={isPending}
-              className="px-3 py-1.5 text-xs font-medium rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface hover:text-fg disabled:opacity-50"
             >
               Cancel
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* Action error */}
-      {actionError && (
-        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+      {actionError ? (
+        <p className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-negative">
           {actionError}
         </p>
-      )}
+      ) : null}
 
-      {/* Metadata + action buttons */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-gray-100 pt-3">
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400 flex-1">
-          {item.capture?.source && <span>source: {item.capture.source}</span>}
-          {item.confidence != null && (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3">
+        <div className="flex flex-1 flex-wrap gap-x-4 gap-y-1 text-xs text-faint">
+          {item.capture?.source ? <span>source: {item.capture.source}</span> : null}
+          {item.confidence != null ? (
             <span>confidence: {Math.round(item.confidence * 100)}%</span>
-          )}
-          <span>{formatDate(item.created_at)}</span>
+          ) : null}
+          <span>{fmtDateTime(item.created_at)}</span>
         </div>
 
-        <div className="flex gap-2 shrink-0">
+        <div className="flex shrink-0 gap-2">
           <button
             onClick={handleEditOpen}
             disabled={isPending || isEditing}
-            className="px-3 py-1 text-xs font-medium rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            className="rounded-lg border border-border px-3 py-1 text-xs font-medium text-muted transition-colors hover:bg-surface-raised hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
           >
             Edit
           </button>
-          {canReject && (
+          {canReject ? (
             <button
               onClick={handleReject}
               disabled={isPending}
-              className="px-3 py-1 text-xs font-medium rounded border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
+              className="rounded-lg border border-border px-3 py-1 text-xs font-medium text-negative transition-colors hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
             >
               {isPending ? "…" : "Reject"}
             </button>
-          )}
-          {canConfirm && (
+          ) : null}
+          {canConfirm ? (
             <button
               onClick={handleConfirm}
               disabled={isPending}
-              className="px-3 py-1 text-xs font-medium rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+              className="rounded-lg bg-positive px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
             >
               {isPending ? "…" : "Confirm"}
             </button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

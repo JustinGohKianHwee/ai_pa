@@ -1,130 +1,88 @@
-import Link from "next/link";
-import type { CurrencyTotals, MoneyEvent, MoneyEventsResponse } from "./types";
+import type { MoneyEventsResponse } from "./types";
 import { authedFetch } from "@/lib/api";
+import { PageContainer, PageHeader, EmptyState, SectionLabel } from "@/components/ui";
+import { fmtNum, fmtDateTime } from "@/lib/format";
 
-// Always render at request time — never pre-render at build; requires live token + data.
 export const dynamic = "force-dynamic";
 
 async function getMoneyEvents(): Promise<MoneyEventsResponse> {
-  const res = await authedFetch("/money_events", {
-    cache: "no-store",
-  });
-
+  const res = await authedFetch("/money_events", { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Backend returned ${res.status}: ${res.statusText}`);
   }
-
   return res.json();
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("en-SG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
-
-function formatAmount(amount: number, currency: string): string {
-  return `${currency} ${amount.toFixed(2)}`;
-}
-
-function TotalsByCurrency({ totals }: { totals: CurrencyTotals[] }) {
-  if (totals.length === 0) return null;
-  return (
-    <section className="space-y-3">
-      <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-        Totals by currency
-      </h2>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {totals.map((bucket) => (
-          <div
-            key={bucket.currency}
-            className="bg-white border border-gray-200 rounded-xl p-4"
-          >
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm font-medium text-gray-500">{bucket.currency}</span>
-              <span className="text-lg font-semibold text-gray-900">
-                {formatAmount(bucket.total, bucket.currency)}
-              </span>
-            </div>
-            <div className="mt-3 space-y-1">
-              {bucket.by_category.map((cat) => (
-                <div
-                  key={cat.category}
-                  className="flex justify-between text-sm text-gray-500"
-                >
-                  <span>{cat.category}</span>
-                  <span className="tabular-nums">{cat.amount.toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ExpenseCard({ event }: { event: MoneyEvent }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <p className="font-medium text-gray-900 leading-snug">
-          {event.merchant ?? event.category ?? "Expense"}
-        </p>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400 mt-2">
-          {event.category && <span>category: {event.category}</span>}
-          {event.occurred_at && <span>occurred: {event.occurred_at}</span>}
-          {event.notes && <span className="text-gray-500">{event.notes}</span>}
-          <span>{formatDate(event.created_at)}</span>
-        </div>
-      </div>
-      <span className="shrink-0 font-semibold text-gray-900 tabular-nums">
-        {formatAmount(event.amount, event.currency)}
-      </span>
-    </div>
-  );
 }
 
 export default async function FinancePage() {
   const data = await getMoneyEvents();
 
   return (
-    <main className="min-h-screen bg-gray-50 py-10 px-4">
-      <div className="max-w-2xl mx-auto space-y-6">
-        <div>
-          <Link href="/" className="text-sm text-gray-400 hover:text-gray-600">
-            ← Home
-          </Link>
-          <h1 className="text-2xl font-semibold text-gray-900 mt-2">Finance</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            {data.total === 0
-              ? "No expenses yet"
-              : `${data.total} expense${data.total !== 1 ? "s" : ""}`}
-          </p>
-        </div>
+    <PageContainer>
+      <PageHeader
+        title="Finance"
+        subtitle={
+          data.total === 0 ? "No expenses yet" : `${data.total} expense${data.total !== 1 ? "s" : ""}`
+        }
+      />
 
-        {data.total === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
-            <p className="text-gray-400 text-sm">No expenses yet.</p>
-            <p className="text-gray-400 text-sm mt-1">
-              Confirm a finance expense in the inbox to see it here.
-            </p>
+      {data.total === 0 ? (
+        <EmptyState>Confirm a finance expense in the inbox to see it here.</EmptyState>
+      ) : (
+        <div className="space-y-8">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {data.totals_by_currency.map((bucket) => (
+              <div key={bucket.currency} className="rounded-xl border border-border bg-surface p-4">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-xs font-medium uppercase tracking-wider text-faint">
+                    {bucket.currency}
+                  </span>
+                  <span className="numeric text-xl font-medium text-fg">
+                    {bucket.currency} {fmtNum(bucket.total)}
+                  </span>
+                </div>
+                <div className="mt-3 space-y-1">
+                  {bucket.by_category.map((cat) => (
+                    <div key={cat.category} className="flex justify-between text-sm text-muted">
+                      <span>{cat.category}</span>
+                      <span className="numeric">{fmtNum(cat.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-        ) : (
-          <>
-            <TotalsByCurrency totals={data.totals_by_currency} />
-            <section className="space-y-2">
-              <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-                Recent expenses
-              </h2>
-              {data.items.map((event) => (
-                <ExpenseCard key={event.id} event={event} />
-              ))}
-            </section>
-          </>
-        )}
-      </div>
-    </main>
+
+          <section>
+            <SectionLabel>Recent expenses</SectionLabel>
+            <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-faint">
+                    <th className="px-4 py-3 font-medium">Merchant</th>
+                    <th className="px-4 py-3 font-medium">Category</th>
+                    <th className="px-4 py-3 font-medium">When</th>
+                    <th className="px-4 py-3 text-right font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map((event) => (
+                    <tr key={event.id} className="border-b border-border last:border-0">
+                      <td className="px-4 py-3 text-fg">{event.merchant ?? "—"}</td>
+                      <td className="px-4 py-3 text-muted">{event.category ?? "—"}</td>
+                      <td className="px-4 py-3 text-muted">
+                        {event.occurred_at ?? fmtDateTime(event.created_at)}
+                      </td>
+                      <td className="numeric px-4 py-3 text-right text-negative">
+                        {event.currency} {fmtNum(event.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      )}
+    </PageContainer>
   );
 }

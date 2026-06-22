@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { completeTask } from "./actions";
 import type { Task } from "./types";
+import { fmtDateTime } from "@/lib/format";
+import { EmptyState } from "@/components/ui";
 
 const URGENCY_GROUPS: { key: string | null; label: string }[] = [
   { key: "today", label: "Today" },
@@ -10,13 +12,6 @@ const URGENCY_GROUPS: { key: string | null; label: string }[] = [
   { key: "someday", label: "Someday" },
   { key: null, label: "Unscheduled" },
 ];
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("en-SG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
 
 function CompleteButton({ id }: { id: string }) {
   const [isPending, startTransition] = useTransition();
@@ -27,49 +22,43 @@ function CompleteButton({ id }: { id: string }) {
     startTransition(async () => {
       const result = await completeTask(id);
       if (!result.ok) {
-        const detail =
+        setError(
           typeof result.data?.detail === "string"
             ? result.data.detail
-            : `Failed (${result.status})`;
-        setError(detail);
+            : `Failed (${result.status})`
+        );
       }
     });
   }
 
   return (
-    <div className="flex flex-col items-end gap-1 shrink-0">
+    <div className="flex shrink-0 flex-col items-end gap-1">
       <button
         onClick={handleComplete}
         disabled={isPending}
-        className="px-3 py-1 text-xs font-medium rounded border border-green-300 text-green-700 hover:bg-green-50 disabled:opacity-50"
+        className="rounded-lg border border-border px-3 py-1 text-xs font-medium text-positive transition-colors hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
       >
         {isPending ? "…" : "Mark complete"}
       </button>
-      {error && <span className="text-xs text-red-600 max-w-[12rem] text-right">{error}</span>}
+      {error ? <span className="max-w-[12rem] text-right text-xs text-negative">{error}</span> : null}
     </div>
   );
 }
 
 function TaskCard({ task, completed = false }: { task: Task; completed?: boolean }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-start justify-between gap-3">
+    <div className="flex items-start justify-between gap-3 rounded-xl border border-border bg-surface p-4">
       <div className="min-w-0">
-        <p
-          className={
-            completed
-              ? "text-gray-400 line-through leading-snug"
-              : "font-medium text-gray-900 leading-snug"
-          }
-        >
+        <p className={completed ? "leading-snug text-faint line-through" : "font-medium leading-snug text-fg"}>
           {task.title}
         </p>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400 mt-2">
-          {task.due_date && <span>due: {task.due_date}</span>}
-          {task.notes && <span className="text-gray-500">{task.notes}</span>}
-          <span>{formatDate(task.created_at)}</span>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-faint">
+          {task.due_date ? <span>due: {task.due_date}</span> : null}
+          {task.notes ? <span className="text-muted">{task.notes}</span> : null}
+          <span>{fmtDateTime(task.created_at)}</span>
         </div>
       </div>
-      {!completed && <CompleteButton id={task.id} />}
+      {!completed ? <CompleteButton id={task.id} /> : null}
     </div>
   );
 }
@@ -79,28 +68,19 @@ export function TaskList({ tasks }: { tasks: Task[] }) {
   const completed = tasks.filter((t) => t.status === "completed");
 
   if (tasks.length === 0) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
-        <p className="text-gray-400 text-sm">No tasks yet.</p>
-        <p className="text-gray-400 text-sm mt-1">
-          Confirm a task in the inbox to see it here.
-        </p>
-      </div>
-    );
+    return <EmptyState>No tasks yet. Confirm a task in the inbox to see it here.</EmptyState>;
   }
 
   return (
     <div className="space-y-8">
       <div className="space-y-6">
-        {open.length === 0 && (
-          <p className="text-sm text-gray-400">No open tasks.</p>
-        )}
+        {open.length === 0 ? <p className="text-sm text-faint">No open tasks.</p> : null}
         {URGENCY_GROUPS.map((group) => {
           const groupTasks = open.filter((t) => (t.urgency ?? null) === group.key);
           if (groupTasks.length === 0) return null;
           return (
             <section key={group.label} className="space-y-2">
-              <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+              <h2 className="text-xs font-medium uppercase tracking-wider text-faint">
                 {group.label}
               </h2>
               {groupTasks.map((t) => (
@@ -111,16 +91,14 @@ export function TaskList({ tasks }: { tasks: Task[] }) {
         })}
       </div>
 
-      {completed.length > 0 && (
+      {completed.length > 0 ? (
         <section className="space-y-2">
-          <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-            Completed
-          </h2>
+          <h2 className="text-xs font-medium uppercase tracking-wider text-faint">Completed</h2>
           {completed.map((t) => (
             <TaskCard key={t.id} task={t} completed />
           ))}
         </section>
-      )}
+      ) : null}
     </div>
   );
 }

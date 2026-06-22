@@ -1,5 +1,7 @@
 "use client";
 
+import { PageContainer } from "@/components/ui";
+
 export default function InboxError({
   error,
   reset,
@@ -8,19 +10,17 @@ export default function InboxError({
   reset: () => void;
 }) {
   return (
-    <main className="min-h-screen bg-gray-50 py-10 px-4">
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-white border border-red-200 rounded-xl p-8 text-center space-y-4">
-          <p className="font-medium text-red-700">Failed to load inbox</p>
-          <p className="text-sm text-gray-500">{error.message}</p>
-          <button
-            onClick={reset}
-            className="mt-2 px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 transition"
-          >
-            Try again
-          </button>
-        </div>
+    <PageContainer>
+      <div className="space-y-4 rounded-xl border border-border bg-surface p-8 text-center">
+        <p className="font-medium text-negative">Failed to load inbox</p>
+        <p className="text-sm text-muted">{error.message}</p>
+        <button
+          onClick={reset}
+          className="mt-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Try again
+        </button>
       </div>
-    </main>
+    </PageContainer>
   );
 }
