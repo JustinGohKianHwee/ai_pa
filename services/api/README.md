@@ -1,6 +1,6 @@
 # services/api — Backend API
 
-**Status: Phase 14.5 — normalized portfolio snapshots implemented; migration/manual verification pending.**
+**Status: Phase 15b — memory-ready database foundation implemented; migrations/manual verification pending.**
 
 `GET /portfolio` aggregates current positions, cash, and today's performance across Tiger and
 IBKR, read-only. Brokers are fetched independently and concurrently with bounded per-broker
@@ -12,7 +12,9 @@ migration. See **Read-only enforcement** below.
 
 Phase 13 (✓ complete): daily review — `GET /daily_review`. Phase 12 (✓ complete): calendar
 intents. Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription.
-Migrations `0001`–`0008` exist; migration `0009` requires manual application. 365 tests pass.
+Migrations `0001`–`0011` exist; migrations `0009`–`0011` require manual application as
+applicable. Replace `<OWNER_USER_ID>` in both `0010_owner_id.sql` and
+`0011_memory_events.sql` with the Supabase owner UUID before applying them. 365 tests pass.
 
 ## Planned stack
 - Python 3.11+
@@ -302,3 +304,9 @@ Expected response:
 - Phase 15a: Supabase email/password authentication, ES256/JWKS owner verification on every
   non-webhook protected route, cookie-based Next.js sessions, and deny-by-default RLS migration
   `0008_rls_lockdown.sql`. Backend database access remains service-role. Manual setup pending.
+- Phase 15b: Memory-ready database foundation, migrations `0010_owner_id.sql` and
+  `0011_memory_events.sql`. All existing tables gain a default-filled, non-null `owner_id`;
+  confirmation RPCs atomically append compact domain `memory_events`, while portfolio snapshot
+  refreshes retain one `snapshot_created` event per canonical snapshot. No application routes,
+  UI, summaries, embedding queue, embeddings, or vector store are added. Replace the owner UUID
+  placeholder before manual migration application.

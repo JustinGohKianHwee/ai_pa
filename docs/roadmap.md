@@ -553,17 +553,32 @@ lock direct database access down without changing the review-first pipeline.
 - Anon/authenticated database access is denied while service-role backend access continues
 - Telegram capture and review-first confirmation remain unchanged
 
-## Phase 15b — Vector memory (pending)
+## Phase 15b — Memory-ready foundation (implementation complete; migration/manual verification pending)
 
-**Goal:** Add semantic memory search after authentication is verified.
+**Goal:** Establish the ownership and event contracts needed by future memory features without
+adding embeddings, vector search, or a memory API.
 
 **What gets built:**
-- `memory_chunks` table with pgvector extension
-- Embeddings written for confirmed domain records
-- `POST /memory/search` and a dashboard search interface
+- Migration `0010_owner_id.sql` adds a default-filled, non-null `owner_id` to the seven
+  pre-snapshot tables. The portfolio snapshot tables already carry `owner_id`.
+- Migration `0011_memory_events.sql` creates an append-only, RLS-locked `memory_events` log.
+- Task, expense, food, and calendar confirmation RPCs append one compact `confirmed` event in
+  the same transaction as the domain record and inbox confirmation.
+- The portfolio snapshot RPC replaces its matching `snapshot_created` event when the canonical
+  snapshot for an owner/date is refreshed, preserving one event per snapshot.
 
-**Note:** Standard SQL queries cover most short-term use cases. Vector memory remains
-separate from Phase 15a and should be added only when cross-month semantic recall is useful.
+**Key constraints:**
+- The user must replace `<OWNER_USER_ID>` in both migrations before applying them manually.
+- Existing confirmation atomicity, idempotency, validation, and review-first behavior are unchanged.
+- `daily_summaries`, `embedding_queue`, embeddings, pgvector, memory APIs/UI, and per-user RLS
+  policies remain deferred to later phases.
+
+**Definition of done:**
+- Every current table has a non-null owner identifier after the migrations are applied.
+- A successful domain confirmation commits exactly one corresponding memory event; a failed
+  confirmation commits neither the domain change nor a memory event.
+- Re-running the same portfolio snapshot keeps one `snapshot_created` event for that snapshot.
+- Direct anon/authenticated access to `memory_events` is denied.
 
 ---
 

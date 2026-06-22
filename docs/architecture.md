@@ -308,11 +308,23 @@ During development: runs locally alongside the Next.js dev server.
 - `calendar_intents` (Phase 12+)
 - `portfolio_snapshots`, `portfolio_snapshot_currency_totals`, and
   `portfolio_snapshot_positions` (Phase 14.5+)
+- `memory_events` — compact events written atomically by confirmation and snapshot RPCs
+  (Phase 15b+)
 - `user_preferences` (Phase 15+)
-- `memory_chunks` — vector embeddings (Phase 15b+)
+- `memory_chunks` — future vector embeddings (deferred beyond Phase 15b)
 
 **Auth / RLS:** Phase 15a adds single-owner API authentication and deny-by-default RLS on
 all current tables. The service-role backend bypasses RLS only after API-layer JWT checks.
+
+**Memory-ready flow:** Phase 15b adds a common default-filled `owner_id` contract and extends
+the existing database RPC transactions as follows:
+
+`confirmed inbox item → domain record + memory_event`
+
+Portfolio snapshot creation similarly writes or replaces one `snapshot_created` memory event.
+`memory_events` is an append-only-by-convention source backlog for future summaries or
+embeddings; it is not itself a vector store and has no API or UI in Phase 15b. Failed
+confirmation transactions leave no domain record and no memory event.
 
 ---
 
@@ -334,7 +346,8 @@ These are not in scope until the core pipeline is working.
 - **iOS Shortcuts** — alternative capture surface (voice-to-text via Apple)
 - **Daily briefing** — proactive Telegram message with today's summary
 - **Weekly review** — AI-generated summary of the week's captures and patterns
-- **Vector memory** — semantic search over past captures using pgvector (Phase 15b+)
+- **Vector memory** — semantic search over compact memory events using pgvector (deferred
+  beyond the Phase 15b foundation)
 
 ---
 

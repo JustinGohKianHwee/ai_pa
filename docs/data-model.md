@@ -10,9 +10,9 @@ The entities are organised in pipeline order: capture first, domain records last
 
 ## Core pipeline entities
 
-> Implemented in Phase 2 (`supabase/migrations/0001_capture_pipeline.sql`). The field
-> lists below match the actual migration. There is no `user_id` column yet — the system
-> is single-user until auth/RLS arrives in Phase 15.
+> Implemented in Phase 2 (`supabase/migrations/0001_capture_pipeline.sql`). Phase 15b migration
+> `0010_owner_id.sql` adds a default-filled, non-null `owner_id` to these tables. The system
+> remains single-owner; this does not introduce multi-user policies.
 
 ### `capture_events`
 
@@ -321,6 +321,34 @@ SQL-based numeric analysis. All three tables are RLS-locked, and the service-rol
 
 ---
 
+## Ownership and memory events — Phase 15b
+
+Migration `0010_owner_id.sql` adds `owner_id text not null` to `capture_events`, `inbox_items`,
+`agent_runs`, `tasks`, `money_events`, `food_logs`, and `calendar_intents`. Existing rows are
+backfilled and new rows use the configured owner UUID as their database default. The three
+portfolio snapshot tables already include `owner_id`. This is a single-owner ownership contract;
+it does not add per-user policies or change application queries.
+
+Migration `0011_memory_events.sql` creates `memory_events`, a compact event backlog for future
+memory consumers:
+
+- `id`, `owner_id`, `occurred_at`, `created_at`
+- `domain` and `event_type`
+- `payload_json` — concise retrieval fields, never a raw domain or broker payload
+- `source_table` and `source_id` — link to the durable domain record or snapshot
+
+The four confirmation RPCs append a `confirmed` event only after creating the domain record and
+confirming its inbox item, inside the same transaction. If any validation or write fails, the
+memory event rolls back with the rest of the confirmation. Existing idempotent confirmation
+returns do not append another event. The portfolio snapshot RPC replaces the event linked to its
+canonical snapshot during a refresh, keeping one `snapshot_created` event per snapshot.
+
+`memory_events` is RLS-enabled, RLS-forced, and inaccessible to anon/authenticated database
+roles. It is append-only by convention and has no read API or UI in this phase. Daily summaries,
+embedding queues, embeddings, pgvector, and semantic search remain deferred.
+
+---
+
 ## Future entities
 
 These are conceptual ideas for later phases. Do not implement them yet.
@@ -343,5 +371,5 @@ currency", "My dietary target is 150g protein per day").
 Vector embeddings for semantic search across past captures (the "Ask my OS" feature).
 Uses Supabase pgvector extension.
 
-**Deferred to Phase 15b.** Plain SQL queries cover 80% of use cases. Add vector memory
-when you need to ask questions across a year of data, not a week.
+**Deferred beyond the Phase 15b foundation.** Phase 15b stores compact source events only.
+Add vector memory when cross-period semantic recall warrants the extra machinery.
