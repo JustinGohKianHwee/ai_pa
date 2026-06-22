@@ -69,22 +69,19 @@ service-role database client.
 
 ## Current status
 
-**Phase 14.5 — normalized portfolio snapshots (implementation complete; migration/manual verification pending).**
+**Phase 16 — deployed to production. ✓**
 
-`GET /portfolio` aggregates current positions, cash, and today's performance across Tiger and
-Interactive Brokers, **read-only**. Brokers are fetched independently and concurrently with
-bounded per-broker timeouts, so one failing broker never hides the other. IBKR uses the Client
-Portal Web API (GET-only allowlist, strict local-TLS); Tiger uses the official `tigeropen` SDK
-(lazy-imported, read-method allowlist). Totals are grouped per currency and never summed across
-currencies, with per-metric completeness flags. No Supabase access, no broker writes, no
-migration. The `/portfolio` dashboard page shows positions, cash, totals, and per-broker status.
-Phase 14.5 adds one atomic, normalized portfolio observation per owner/local day, with
-per-currency totals and atomic holding/cash rows. It is manually triggered and idempotent;
-there is no FX, vector memory, or scheduler. 365 backend tests pass.
+Live: a **Vercel** frontend (`pa.justin-goh.dev`) backed by a **FastAPI** service on **Render**
+and the **Supabase** Postgres database. Sending a Telegram message from a phone creates an inbox
+item visible in production; the review → confirm → domain-record loop (tasks, finance, food,
+calendar) works end-to-end, behind Supabase email/password auth (ES256/JWKS, single-owner gate)
+and deny-by-default RLS. The dark data-cockpit UI (Phase 15c) covers every page.
 
-Phase 13 (✓ complete): daily review — `GET /daily_review`. Phase 12 (✓ complete): calendar
-intents. Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription via Whisper.
-Migrations `0008` and `0009` require manual application if not already applied.
+Portfolio is read-only across Tiger + IBKR with daily normalized snapshots (Phase 14 / 14.5).
+**For security, the Tiger broker credential is kept local-only** (never deployed to the cloud
+host) — so live portfolio fetch and new snapshots run locally, while the cloud shows stored
+snapshot history/value from the database; IBKR is local-only (its gateway can't run on a PaaS).
+Migrations `0001`–`0011` applied. 365 backend tests pass.
 
 Milestones: **Phase 6** — classification end-to-end. **Phase 7** — review layer. **Phase 8** —
 MVP (tasks + atomic confirm). **Phase 9** — finance expenses. **Phase 10** — voice transcription.
@@ -92,6 +89,7 @@ MVP (tasks + atomic confirm). **Phase 9** — finance expenses. **Phase 10** —
 **Phase 14** — read-only portfolio. **Phase 14.5** — normalized snapshots.
 **Phase 15a** — authentication + RLS. **Phase 15b** — memory-ready foundation
 (`owner_id` + `memory_events`). **Phase 15c** — UI revamp (dark-first data-cockpit).
+**Phase 16** — production deployment.
 
 ---
 

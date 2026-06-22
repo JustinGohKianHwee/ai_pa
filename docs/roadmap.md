@@ -582,11 +582,31 @@ adding embeddings, vector search, or a memory API.
 
 ---
 
-## Phase 16 — Deployment
+## Phase 15c — UI revamp ✓ complete
+
+**Goal:** A cohesive, professional dark-first data-cockpit UI across the whole app.
+
+**Delivered:** CSS-variable theme tokens (dark default + light toggle, no-FOUC script), Geist
+Sans/Mono with tabular numerics, an app shell with a slim icon rail, a shared component kit, a
+data-driven bento dashboard home, and every page redesigned for its function. Frontend-only —
+no backend/auth/API changes. `lint`/`tsc`/`build` clean.
+
+---
+
+## Phase 16 — Deployment ✓ complete
 
 **Goal:** The system runs in production, accessible from anywhere.
 
-**What gets built:**
+**Delivered (2026-06-23):** frontend on **Vercel** (custom domain `pa.justin-goh.dev`); backend
+on **Render** (free tier); the existing Supabase project reused as production; Telegram webhook
+re-registered to the Render URL; verified end-to-end (phone message → inbox → confirm → domain
+record in prod). **Security decision:** the Tiger broker credential is intentionally **not**
+deployed to Render (free tier lacks 2FA), so live portfolio fetch + new snapshots run locally
+while the cloud reads stored snapshots from Supabase for history/value; IBKR stays local-only
+(gateway can't run on a PaaS). The scheduled 7am snapshot is **deferred** until an always-on
+(paid) instance + static egress IP.
+
+**What was built (reference):**
 - Frontend deployed to Vercel
   - Environment variables configured
   - Custom domain (optional)
@@ -605,3 +625,49 @@ adding embeddings, vector search, or a memory API.
 **Definition of done:**
 - Sending a Telegram message from a phone creates an inbox item visible at the production URL
 - The system handles a full day of real use without errors
+
+---
+
+## Future phases (post-deployment)
+
+> Sequencing principle: deploy first (done) so real data accumulates → build the modules you
+> actually use → summaries → then the memory/AI layer. A dedicated security review gates the
+> high-sensitivity AI work.
+
+### Phase 17 — Food upgrade: calories, macros & photo input
+Multimodal capture: a food photo via Telegram → vision model estimates the dish +
+calories/macros → through the review pipeline (you confirm/correct the estimate) → extend
+`food_logs` (calories, protein, …) + Supabase Storage for images. Daily calorie/macro totals
+on the food page and dashboard tile.
+
+### Phase 18 — Exercise / workouts
+Capture → confirm → `exercise_logs` (type, duration, sets/reps/distance). Dashboard tile.
+
+### Phase 19 — Habits & goals
+Recurring habits (streaks) and goals (progress) through the confirmation pipeline; surfaced on
+the dashboard.
+
+### Phase 20 — Notes / journal
+Free-form notes and journal entries through capture → confirm; searchable list.
+
+### Phase 21 — Daily & weekly summaries
+Populate `daily_summaries` from confirmed records + snapshots + `memory_events`; a weekly
+rollup; surface on the dashboard/review.
+
+### Phase 22 — Security review & hardening (risk register)
+Before embedding all life data and giving an LLM access, do a formal review: enumerate every
+risk with **severity (High / Medium / Low)** and **likelihood**, plus mitigation + owner.
+Cover at least: auth/session integrity, RLS + service-role blast radius, secret storage
+(Render / Supabase / Vercel) and 2FA status, the Tiger-key-kept-local decision, public
+endpoints (webhook/health) + rate limiting, dependency/supply-chain risk, backups & recovery,
+prompt-injection in the AI layer, and PII exposure. **Output:** a living `docs/security.md`
+risk register, with all High-severity items fixed before proceeding. (Security is revisited
+continuously; this is the dedicated gate.)
+
+### Phase 23 — Vector memory
+pgvector + `memory_chunks`; embed `memory_events`/summaries; `POST /memory/search` + a
+dashboard search bar. Built only now, on real accumulated data.
+
+### Phase 24 — LLM assistant / recommendations
+A retrieval-grounded assistant over your memory — ask questions across months of data, get
+recommendations. The payoff, and the most security-sensitive surface (hence the Phase 22 gate).
