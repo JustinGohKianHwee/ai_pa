@@ -487,18 +487,18 @@ been verified against the user's real accounts — see the definition of done.
 
 ---
 
-## Phase 14.5 — Daily portfolio snapshots
+## Phase 14.5 — Daily portfolio snapshots (implementation complete; migration/manual verification pending)
 
 **Goal:** Preserve one normalized Tiger/IBKR portfolio observation per local portfolio day in
 Supabase so later SQL analysis and memory generation can use reliable historical data.
 
 **What gets built:**
-- Supabase migrations for snapshot-run, broker-account, position, and cash-balance snapshot data
-- A scheduler-compatible backend snapshot job using a configurable time and `USER_TIMEZONE`
-- A protected manual `POST /portfolio/snapshots` fallback using the same snapshot service
-- Idempotency protection so retries, scheduler restarts, or manual fallback do not create more
+- Migration `0009_portfolio_snapshots.sql` with snapshot headers, per-currency totals, and
+  atomic position/cash rows plus a service-role-only persistence RPC
+- A protected manual `POST /portfolio/snapshots` using `USER_TIMEZONE` for the local date
+- Idempotency protection so retries or repeated manual requests do not create more
   than one canonical snapshot for the same portfolio day
-- A small read-only snapshot endpoint for verifying the latest saved observation
+- Protected list, date-detail, and per-currency history endpoints
 - Snapshot-run status and safe broker-level failure metadata so missing/stale broker data is not
   mistaken for a complete portfolio
 
@@ -507,17 +507,13 @@ Supabase so later SQL analysis and memory generation can use reliable historical
   observations and may be stale.
 - Store normalized fields only — never raw broker responses, credentials, session data, private
   keys, or full account numbers.
-- Use a stable opaque account key plus a masked display label; do not use a full broker account
-  number as a database identifier.
+- Store masked account references and a stable asset id (`instrument_id` or
+  `broker:symbol:currency`); never persist a full broker account number.
 - Preserve native currency, P&L source (`broker`, `calculated`, `unavailable`), completeness,
   quote status, broker `as_of`, and snapshot timestamps.
 - Snapshot persistence is atomic: the run and all associated account/position/cash rows commit
   together or roll back together.
-- "Daily" uses a configured portfolio cutoff rather than pretending all assets share one market
-  close. The recommended initial cutoff is after the latest relevant market close, with a buffer
-  for broker data to settle; the exact time remains configurable.
-- Scheduled execution requires the local machine, backend prerequisites, and broker sessions to
-  be available. A protected manual retry remains available when a broker session has expired.
+- Phase 14.5 is manually triggered only. Scheduling remains deferred until deployment.
 - This explicit external-data snapshot flow is not an inbox confirmation and does not create or
   modify tasks, expenses, food logs, calendar intents, or broker positions.
 
@@ -529,9 +525,8 @@ Supabase so later SQL analysis and memory generation can use reliable historical
 - Brokerage writes, MCP tools, or trade execution
 
 **Definition of done:**
-- The configured daily job creates one normalized snapshot for the portfolio day when broker
-  sessions are available
-- Scheduler retries and a manual retry are idempotent for that portfolio day
+- A manual request creates or refreshes one normalized snapshot for the local portfolio day
+- Repeating the request is idempotent for `(owner_id, snapshot_date)`
 - Partial or failed persistence leaves no half-written snapshot
 - The latest snapshot can be read back without exposing broker secrets or full account numbers
 - Broker unavailability is recorded safely and never presented as a complete snapshot
@@ -585,6 +580,12 @@ separate from Phase 15a and should be added only when cross-month semantic recal
   - Telegram webhook re-registered to production URL
 - Production Supabase project (or promote dev project)
 - Monitoring and basic error alerting
+- Scheduled daily portfolio snapshot (the Phase 14.5 system): a cron at ~07:00 Asia/Singapore
+  (after US market close, ~04:00–05:00 SGT) that triggers `POST /portfolio/snapshots`.
+  Prerequisites/notes: needs the always-on deployed backend; Tiger can run unattended, but
+  IBKR's Client Portal session expires and can't easily run unattended (expect IBKR-partial
+  snapshots until a keepalive/re-auth approach is chosen); the scheduled snapshot must label
+  `snapshot_date` with the **US trading day**, not the local calendar date.
 
 **Definition of done:**
 - Sending a Telegram message from a phone creates an inbox item visible at the production URL

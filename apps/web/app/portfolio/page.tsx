@@ -10,6 +10,8 @@ import type {
   Portfolio,
 } from "./types";
 import { authedFetch } from "@/lib/api";
+import { fmtMoney, fmtNum } from "./format";
+import { SnapshotButton } from "./SnapshotButton";
 
 export const dynamic = "force-dynamic";
 
@@ -23,19 +25,6 @@ async function getPortfolio(): Promise<Portfolio> {
   }
 
   return res.json();
-}
-
-function fmtNum(n: number | null | undefined): string {
-  if (n === null || n === undefined) return "—";
-  return n.toLocaleString("en-SG", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function fmtMoney(n: number | null | undefined, ccy: string): string {
-  if (n === null || n === undefined) return "—";
-  return `${ccy} ${fmtNum(n)}`;
 }
 
 function fmtTime(iso: string | null): string {
@@ -266,6 +255,15 @@ export default async function PortfolioPage() {
           <p className="mt-1 text-xs text-gray-400">
             Read-only. Refresh the page to fetch the latest broker data.
           </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <SnapshotButton />
+            <Link
+              href="/portfolio/history"
+              className="text-sm text-gray-500 hover:text-gray-900"
+            >
+              History →
+            </Link>
+          </div>
         </div>
 
         {data.partial_failure && (

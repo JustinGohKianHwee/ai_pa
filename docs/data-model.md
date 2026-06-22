@@ -292,20 +292,22 @@ change portfolio positions or submit an order. Normalized portfolio snapshots ar
 separately in Phase 14.5; instrument-master persistence, MCP exposure, and broker execution
 records remain future entities that require separate designs.
 
-### Portfolio snapshots — Phase 14.5+
+### Portfolio snapshots — Phase 14.5
 
 Portfolio snapshots are daily historical observations of the normalized Phase 14 response.
 They are not the source of truth for current positions and are never written by a normal
-`GET /portfolio` refresh. A configurable scheduler creates at most one canonical snapshot per
-local portfolio day; a protected manual action uses the same idempotent service as a fallback.
+`GET /portfolio` refresh. A protected manual action creates or refreshes at most one canonical
+snapshot per `(owner_id, snapshot_date)`. Scheduling is deferred until deployment.
 
-The Phase 14.5 migration is expected to separate:
-- snapshot-run metadata and idempotency information
-- per-broker/account summary observations
-- position observations
-- cash-balance observations
+Migration `0009_portfolio_snapshots.sql` creates:
+- `portfolio_snapshots` — owner/date header, source, generated time, partial-failure state,
+  and safe broker-status metadata
+- `portfolio_snapshot_currency_totals` — native-currency invested, cash, and total values plus
+  completeness counts; currencies are never converted or combined
+- `portfolio_snapshot_positions` — one normalized atomic row per holding and cash balance,
+  including `stable_asset_id`, masked account reference, valuation, P&L, allocation, and metadata
 
-Snapshot rows preserve stable opaque account identity, masked display labels, native currency,
+Snapshot rows preserve stable asset identity, masked account labels, native currency,
 broker/instrument identifiers, quantities, valuations, P&L and its source, completeness flags,
 quote status, broker `as_of`, and snapshot timestamps where available. Raw broker responses,
 credentials, sessions, private keys, and full account numbers are never persisted.
@@ -314,7 +316,8 @@ Each snapshot is saved transactionally: its run and all child observations commi
 together. The run records completeness and safe broker-level failure state so a missed or expired
 session cannot masquerade as a complete zero-position day. Later memory generation should derive
 concise facts from validated snapshot history; vector embeddings are not a substitute for
-SQL-based numeric analysis.
+SQL-based numeric analysis. All three tables are RLS-locked, and the service-role-only
+`create_portfolio_snapshot` RPC atomically upserts the header and replaces all children.
 
 ---
 
@@ -340,5 +343,5 @@ currency", "My dietary target is 150g protein per day").
 Vector embeddings for semantic search across past captures (the "Ask my OS" feature).
 Uses Supabase pgvector extension.
 
-**Deferred to Phase 15.** Plain SQL queries cover 80% of use cases. Add vector memory
+**Deferred to Phase 15b.** Plain SQL queries cover 80% of use cases. Add vector memory
 when you need to ask questions across a year of data, not a week.

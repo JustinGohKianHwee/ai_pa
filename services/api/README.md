@@ -1,6 +1,6 @@
 # services/api — Backend API
 
-**Status: Phase 15a — authentication + RLS (implementation complete; manual setup pending).**
+**Status: Phase 14.5 — normalized portfolio snapshots implemented; migration/manual verification pending.**
 
 `GET /portfolio` aggregates current positions, cash, and today's performance across Tiger and
 IBKR, read-only. Brokers are fetched independently and concurrently with bounded per-broker
@@ -12,7 +12,7 @@ migration. See **Read-only enforcement** below.
 
 Phase 13 (✓ complete): daily review — `GET /daily_review`. Phase 12 (✓ complete): calendar
 intents. Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription.
-Migrations `0001`–`0007` applied; migration `0008` requires manual application. 348 tests pass.
+Migrations `0001`–`0008` exist; migration `0009` requires manual application. 365 tests pass.
 
 ## Planned stack
 - Python 3.11+
@@ -45,6 +45,7 @@ app/
   services/
     classifier.py    — OpenAI classification + per-type structured_json schemas
     transcriber.py   — OpenAI Whisper transcription (Phase 10+)
+    portfolio_snapshot.py — pure normalization + atomic snapshot RPC call
   brokers/           — read-only portfolio adapters (Phase 14; no network at import time)
     models.py        — broker-neutral contract (Position, CashBalance, CurrencyTotal, …)
     masking.py       — mask_account() — never exposes full account numbers
@@ -64,6 +65,7 @@ app/
     calendar.py      — GET /calendar_intents (calendar module, read-only)
     daily_review.py  — GET /daily_review (read-only daily activity summary, Phase 13)
     portfolio.py     — GET /portfolio (read-only Tiger + IBKR portfolio, Phase 14)
+    portfolio_snapshots.py — create/list/detail/history snapshot routes (Phase 14.5)
     telegram.py      — POST /telegram/webhook (Telegram capture)
 tests/
   test_health.py             — /health endpoint tests
@@ -79,6 +81,8 @@ tests/
   test_calendar_intents.py   — calendar intents API tests (mocked Supabase)
   test_daily_review.py       — daily review API tests (mocked Supabase; 22 tests)
   test_portfolio.py          — /portfolio orchestration, totals, thread-accumulation (mocked adapters)
+  test_portfolio_snapshot.py — normalization, allocation, missing fields, RPC idempotency
+  test_portfolio_snapshots.py — snapshot route auth and response tests
   test_brokers_ibkr.py       — IBKR adapter: paths/methods, TLS, allowlist, normalization (mocked httpx)
   test_brokers_tiger.py      — Tiger adapter: SDK methods, normalization, allowlist (mocked SDK)
   test_telegram_webhook.py   — Telegram text webhook tests (mocked Supabase + httpx)
@@ -133,6 +137,10 @@ It must never appear in `apps/web/` env vars, browser bundles, or client respons
 | `GET` | `/calendar_intents` | `Supabase access token` | Read-only list of all confirmed calendar intents, ordered by `created_at DESC`. `proposed_datetime` is verbatim text — not parsed. No date filter. |
 | `GET` | `/daily_review` | `Supabase access token` | Read-only daily activity summary. Only `?date=today` or no param accepted; other values return 422. Requires `USER_TIMEZONE` — missing or invalid → 503. Returns captured/confirmed/rejected/pending counts, item lists, and a deterministic summary string. No AI call. |
 | `GET` | `/portfolio` | `Supabase access token` | Read-only Tiger + IBKR portfolio. Brokers fetched independently/concurrently with bounded per-broker timeouts; one failing broker never hides the other (`partial_failure`, per-broker `status`). Returns normalized positions, account summaries, cash, and `totals_by_currency` (grouped per currency, never summed across currencies, with per-metric completeness). Account refs masked. No Supabase access, no broker writes. Returns 200 even when brokers are unconfigured/unavailable (the failure is reported in the body). |
+| `POST` | `/portfolio/snapshots` | `Supabase access token` | Manually creates or refreshes today's atomic normalized snapshot. Idempotent per owner/local date. |
+| `GET` | `/portfolio/snapshots` | `Supabase access token` | Lists snapshot dates, partial status, and per-currency totals, newest first. |
+| `GET` | `/portfolio/snapshots/{date}` | `Supabase access token` | Returns one snapshot header, currency totals, and atomic position/cash rows. |
+| `GET` | `/portfolio/snapshots/history?currency=USD` | `Supabase access token` | Returns date/total-value history for one native currency. No FX or chart math. |
 | `POST` | `/telegram/webhook` | `TELEGRAM_WEBHOOK_SECRET` header | Telegram text and voice capture. Text → classify directly. Voice → download OGG → Whisper → classify. Non-text/voice updates silently ignored. |
 
 `/telegram/webhook` uses its own secret (`X-Telegram-Bot-Api-Secret-Token` header), not a
@@ -288,6 +296,9 @@ Expected response:
 - Phase 12: Calendar intents module ✓ complete, `supabase/migrations/0007_calendar_intents.sql` (`calendar_intents` table + `confirm_calendar_item` atomic RPC), `app/routes/calendar.py` (`GET /calendar_intents`), calendar branch in `confirm` (`review.py`). `proposed_datetime` stored as verbatim TEXT; no date filter; ordered by `created_at DESC`. No `status` column, no `user_id`. 248 tests pass.
 - Phase 13: Daily review module ✓ complete, `app/routes/daily_review.py` (`GET /daily_review`). Three read-only queries: `capture_events.created_at` for captures (embedded inbox_items via reverse-FK select), `inbox_items.reviewed_at` for confirmed/rejected. `USER_TIMEZONE` required — missing or invalid → 503. Deterministic summary, no AI call, no migration. Automated and manual E2E verification passed. 273 tests pass.
 - Phase 14: Read-only portfolio (implementation complete; manual verification pending), `app/brokers/` (models, masking, base, `tiger.py`, `ibkr.py`, `portfolio_service.py`) + `app/routes/portfolio.py` (`GET /portfolio`). IBKR via Client Portal Web API (httpx, GET-only allowlist, strict local-TLS); Tiger via `tigeropen` (lazy-imported, SDK-method allowlist). Concurrent fetch with bounded executor + per-broker single-flight; totals grouped per currency with per-metric completeness; account masking; no Supabase access; no migration. New deps: `tigeropen`. 317 tests pass (44 new, all mocked).
+- Phase 14.5: Daily normalized portfolio snapshots, migration `0009_portfolio_snapshots.sql`,
+  atomic service-role RPC, manual create/refresh, owner-scoped list/detail/history APIs, and
+  minimal history UI. Postgres remains the source of truth; no FX, vectors, cron, or charts.
 - Phase 15a: Supabase email/password authentication, ES256/JWKS owner verification on every
   non-webhook protected route, cookie-based Next.js sessions, and deny-by-default RLS migration
   `0008_rls_lockdown.sql`. Backend database access remains service-role. Manual setup pending.

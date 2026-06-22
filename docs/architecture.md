@@ -306,7 +306,8 @@ During development: runs locally alongside the Next.js dev server.
 - `money_events` (Phase 9+)
 - `food_logs` (Phase 11+)
 - `calendar_intents` (Phase 12+)
-- portfolio snapshot runs, account observations, positions, and cash balances (Phase 14.5+)
+- `portfolio_snapshots`, `portfolio_snapshot_currency_totals`, and
+  `portfolio_snapshot_positions` (Phase 14.5+)
 - `user_preferences` (Phase 15+)
 - `memory_chunks` — vector embeddings (Phase 15b+)
 
@@ -321,8 +322,9 @@ These are not in scope until the core pipeline is working.
 
 - **Tiger/IBKR portfolio aggregation** — read-only broker adapters and normalized portfolio
   view (Phase 14)
-- **Portfolio snapshots** — scheduled daily, transactional normalized observations in Supabase,
-  with an idempotent manual fallback, for later SQL analysis and memory derivation (Phase 14.5)
+- **Portfolio snapshots** — manually triggered, transactional normalized observations in
+  Supabase, idempotent per owner/local day, for later SQL analysis and memory derivation
+  (Phase 14.5). Scheduling is deferred until deployment.
 - **Broker MCP tools** — expose normalized read-only portfolio capabilities after the adapter
   contract is stable
 - **Broker execution** — future high-risk workflow requiring order preview, a separate explicit

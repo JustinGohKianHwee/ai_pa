@@ -69,7 +69,7 @@ service-role database client.
 
 ## Current status
 
-**Phase 15a — authentication + RLS (implementation complete; manual setup pending).**
+**Phase 14.5 — normalized portfolio snapshots (implementation complete; migration/manual verification pending).**
 
 `GET /portfolio` aggregates current positions, cash, and today's performance across Tiger and
 Interactive Brokers, **read-only**. Brokers are fetched independently and concurrently with
@@ -78,18 +78,19 @@ Portal Web API (GET-only allowlist, strict local-TLS); Tiger uses the official `
 (lazy-imported, read-method allowlist). Totals are grouped per currency and never summed across
 currencies, with per-metric completeness flags. No Supabase access, no broker writes, no
 migration. The `/portfolio` dashboard page shows positions, cash, totals, and per-broker status.
-Live broker connectivity is not yet verified against real accounts. Phase 15a adds owner-only
-Supabase email/password login, backend JWT verification, and migration `0008_rls_lockdown.sql`.
-348 backend tests pass.
+Phase 14.5 adds one atomic, normalized portfolio observation per owner/local day, with
+per-currency totals and atomic holding/cash rows. It is manually triggered and idempotent;
+there is no FX, vector memory, or scheduler. 365 backend tests pass.
 
 Phase 13 (✓ complete): daily review — `GET /daily_review`. Phase 12 (✓ complete): calendar
 intents. Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription via Whisper.
-Migrations `0001`–`0007` applied; migration `0008` must be applied manually.
+Migrations `0008` and `0009` require manual application if not already applied.
 
 Milestones: **Phase 6** — classification end-to-end. **Phase 7** — review layer. **Phase 8** —
 MVP (tasks + atomic confirm). **Phase 9** — finance expenses. **Phase 10** — voice transcription.
 **Phase 11** — food logs. **Phase 12** — calendar intents. **Phase 13** — daily review.
-**Phase 14** — read-only portfolio. **Phase 15a** — authentication + RLS.
+**Phase 14** — read-only portfolio. **Phase 14.5** — normalized snapshots.
+**Phase 15a** — authentication + RLS.
 
 ---
 
@@ -167,7 +168,8 @@ to include `transcription_failed`. `0005_capture_unique_source.sql` (Phase 10) a
 `confirm_food_item` atomic-confirmation RPC. `0007_calendar_intents.sql` (Phase 12) adds the
 `calendar_intents` table and the `confirm_calendar_item` atomic-confirmation RPC.
 `0008_rls_lockdown.sql` (Phase 15a) enables deny-by-default RLS and restricts confirmation
-RPC execution to `service_role`. Apply
+RPC execution to `service_role`. `0009_portfolio_snapshots.sql` (Phase 14.5) adds the three
+normalized snapshot tables and atomic `create_portfolio_snapshot` RPC. Apply
 migrations in order.
 
 ### Apply it (no install required)
@@ -191,8 +193,9 @@ supabase link --project-ref <your-project-ref>
 supabase db push        # applies supabase/migrations/*.sql to the linked project
 ```
 
-> Migrations `0001`–`0007` are applied to this project's Supabase database. Migration `0008`
-> requires manual application. New environments must apply every migration in order.
+> Apply migrations through `0008` before Phase 14.5. Migration `0009` requires manual
+> application before using snapshot endpoints. New environments must apply every migration
+> in order.
 
 ### Phase 15a manual Supabase setup
 
