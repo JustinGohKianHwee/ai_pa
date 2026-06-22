@@ -25,10 +25,11 @@ async function getDailyReview(): Promise<DailyReview> {
   return res.json();
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, timeZone: string): string {
   return new Date(iso).toLocaleString("en-SG", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone,
   });
 }
 
@@ -68,10 +69,12 @@ function ReviewItemCard({
   item,
   timestampLabel,
   timestamp,
+  timeZone,
 }: {
   item: InboxItemSummary;
   timestampLabel: string;
   timestamp: string;
+  timeZone: string;
 }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4">
@@ -82,7 +85,7 @@ function ReviewItemCard({
         <ItemTypeBadge type={item.item_type} />
       </div>
       <p className="text-xs text-gray-400 mt-2">
-        {timestampLabel}: {formatDate(timestamp)}
+        {timestampLabel}: {formatDate(timestamp, timeZone)}
       </p>
     </div>
   );
@@ -153,6 +156,7 @@ export default async function ReviewPage() {
                     item={item}
                     timestampLabel="confirmed"
                     timestamp={item.reviewed_at!}
+                    timeZone={data.timezone}
                   />
                 ))}
               </section>
@@ -169,6 +173,7 @@ export default async function ReviewPage() {
                     item={item}
                     timestampLabel="rejected"
                     timestamp={item.reviewed_at!}
+                    timeZone={data.timezone}
                   />
                 ))}
               </section>
@@ -185,6 +190,7 @@ export default async function ReviewPage() {
                     item={item}
                     timestampLabel="captured"
                     timestamp={item.created_at}
+                    timeZone={data.timezone}
                   />
                 ))}
               </section>

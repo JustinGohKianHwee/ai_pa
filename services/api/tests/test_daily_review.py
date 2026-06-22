@@ -124,6 +124,30 @@ REJECTED_FINANCE_ROW = {
     "reviewed_at": "2026-06-22T08:00:00+00:00",   # reviewed today
 }
 
+# PostgREST returns a one-to-one FK as a single dict (not a list) when the
+# UNIQUE constraint on inbox_items.capture_event_id is known to the schema.
+CAPTURE_ROW_TASK_DICT_SHAPE = {
+    "id": "cap-uuid-1",
+    "created_at": "2026-06-22T04:00:00+00:00",
+    "source": "telegram_text",
+    "inbox_items": {           # ← dict, not list
+        "id": "inbox-uuid-1",
+        "item_type": "task",
+        "review_status": "confirmed",
+        "title": "Call mum",
+        "created_at": "2026-06-22T04:00:01+00:00",
+        "reviewed_at": "2026-06-22T05:00:00+00:00",
+    },
+}
+
+# Capture event with no linked inbox item (partial-failure recovery path).
+CAPTURE_ROW_NO_INBOX = {
+    "id": "cap-uuid-orphan",
+    "created_at": "2026-06-22T03:00:00+00:00",
+    "source": "telegram_text",
+    "inbox_items": None,
+}
+
 
 def _make_daily_review_mock(
     captured_data: list,
@@ -491,3 +515,54 @@ def test_daily_review_db_query_failure_returns_503(monkeypatch):
     with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
         response = client.get("/daily_review", headers=_auth_header())
     assert response.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# PostgREST shape handling and timestamp correctness
+# ---------------------------------------------------------------------------
+
+
+def test_daily_review_handles_dict_inbox_items_shape(monkeypatch):
+    """PostgREST may return a one-to-one FK as a single dict — must not crash."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
+    mock, _, _ = _make_daily_review_mock([CAPTURE_ROW_TASK_DICT_SHAPE], [], [])
+    with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
+        response = client.get("/daily_review", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["captured_count"] == 1
+    assert len(body["captured_items"]) == 1
+    assert body["captured_items"][0]["id"] == "inbox-uuid-1"
+    assert body["captured_items"][0]["item_type"] == "task"
+
+
+def test_daily_review_captured_items_use_capture_event_timestamp(monkeypatch):
+    """captured_items[].created_at must be the outer capture_event timestamp."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
+    mock, _, _ = _make_daily_review_mock([CAPTURE_ROW_TASK], [], [])
+    with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
+        response = client.get("/daily_review", headers=_auth_header())
+    body = response.json()
+    assert len(body["captured_items"]) == 1
+    # Capture event created_at (04:00:00), not inbox_item created_at (04:00:01).
+    assert body["captured_items"][0]["created_at"] == CAPTURE_ROW_TASK["created_at"]
+
+
+def test_daily_review_orphaned_capture_in_count_and_list(monkeypatch):
+    """A capture with no linked inbox item must appear in captured_count and captured_items."""
+    monkeypatch.setenv("DEV_ADMIN_TOKEN", VALID_TOKEN)
+    monkeypatch.setenv("USER_TIMEZONE", "Asia/Singapore")
+    mock, _, _ = _make_daily_review_mock([CAPTURE_ROW_NO_INBOX], [], [])
+    with patch("app.routes.daily_review.get_supabase_client", return_value=mock):
+        response = client.get("/daily_review", headers=_auth_header())
+    body = response.json()
+    assert body["captured_count"] == 1
+    assert len(body["captured_items"]) == 1
+    item = body["captured_items"][0]
+    assert item["id"] == "cap-uuid-orphan"
+    assert item["review_status"] == "orphaned"
+    assert item["created_at"] == CAPTURE_ROW_NO_INBOX["created_at"]
+    # Orphaned captures are not pending review.
+    assert body["pending_count"] == 0

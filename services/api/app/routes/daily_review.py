@@ -157,12 +157,39 @@ def get_daily_review(
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Database query failed") from exc
 
-    # Extract inbox_items embedded in each capture_event row
+    # Extract inbox_items embedded in each capture_event row.
+    # PostgREST may return a one-to-one FK as either a single dict or a list;
+    # normalise to a single dict or None before extracting.
     captured_items: list[InboxItemSummary] = []
     for row in cap_result.data:
-        embedded = row.get("inbox_items") or []
-        if embedded:
-            captured_items.append(InboxItemSummary(**embedded[0]))
+        raw = row.get("inbox_items")
+        if isinstance(raw, list):
+            inbox_dict = raw[0] if raw else None
+        elif isinstance(raw, dict):
+            inbox_dict = raw
+        else:
+            inbox_dict = None  # None or unexpected shape → orphaned capture
+
+        if inbox_dict:
+            captured_items.append(InboxItemSummary(
+                id=inbox_dict["id"],
+                item_type=inbox_dict["item_type"],
+                review_status=inbox_dict["review_status"],
+                title=inbox_dict.get("title"),
+                created_at=row["created_at"],  # outer capture timestamp, not inbox_item's
+                reviewed_at=inbox_dict.get("reviewed_at"),
+            ))
+        else:
+            # Capture with no linked inbox item (e.g. partial-failure recovery path).
+            # Include it so captured_count and captured_items remain consistent.
+            captured_items.append(InboxItemSummary(
+                id=row["id"],
+                item_type="unknown",
+                review_status="orphaned",
+                title=None,
+                created_at=row["created_at"],
+                reviewed_at=None,
+            ))
 
     pending_items = [
         item
