@@ -10,6 +10,8 @@ TLS: the gateway serves a self-signed cert on loopback. Verification is resolved
 strict precedence (CA bundle > loopback-only insecure > always verify). A generic
 "disable verification" switch is never exposed.
 """
+import ipaddress
+import math
 import os
 import re
 from datetime import datetime, timezone
@@ -31,7 +33,6 @@ from app.brokers.models import (
 )
 
 DEFAULT_BASE_URL = "https://localhost:5000/v1/api"
-_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _MAX_POSITION_PAGES = 10  # bound pagination to avoid unbounded loops
 
 # GET-only allowlist. Each concrete request path must match one of these patterns, and the
@@ -76,7 +77,13 @@ def _http_timeout() -> httpx.Timeout:
 def _is_loopback(host: Optional[str]) -> bool:
     if not host:
         return False
-    return host in _LOOPBACK_HOSTS or host.startswith("127.")
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        # Not a valid IP literal (e.g. "127.attacker.example") — not loopback.
+        return False
 
 
 def resolve_verify(base_url: str) -> Any:
@@ -89,6 +96,14 @@ def resolve_verify(base_url: str) -> Any:
     """
     cacert = (os.getenv("IBKR_CPAPI_CACERT") or "").strip()
     if cacert:
+        if not os.path.isfile(cacert):
+            # A non-file value is almost always a misconfiguration (e.g. an inline
+            # comment leaked from .env). Fail clearly rather than handing a bad path
+            # to the SSL layer, which raises a cryptic OSError.
+            raise IbkrConfigError(
+                "IBKR_CPAPI_CACERT is set but does not point to a readable file. "
+                "Leave it blank for a local loopback gateway, or set it to the CA bundle path."
+            )
         return cacert
 
     host = urlparse(base_url).hostname
@@ -105,9 +120,10 @@ def _num(value: Any) -> Optional[float]:
     if value is None or isinstance(value, bool):
         return None
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return None
+    return result if math.isfinite(result) else None
 
 
 class IbkrAdapter(BrokerAdapter):
@@ -144,7 +160,11 @@ class IbkrAdapter(BrokerAdapter):
 
         try:
             with httpx.Client(
-                base_url=base_url, verify=verify, timeout=_http_timeout()
+                base_url=base_url,
+                verify=verify,
+                timeout=_http_timeout(),
+                # Prevent proxy env vars (HTTP_PROXY etc.) redirecting local traffic.
+                trust_env=False,
             ) as client:
                 auth = self._get_json(client, "/iserver/auth/status")
                 if not isinstance(auth, dict) or not auth.get("authenticated"):
@@ -169,7 +189,10 @@ class IbkrAdapter(BrokerAdapter):
                     acct_id = acct.get("accountId") or acct.get("id")
                     if not acct_id:
                         continue
-                    ref = mask_account(str(acct_id), label)
+                    # Always include the masked ID so each account_ref is unique even
+                    # when multiple accounts share the same IBKR_ACCOUNT_LABEL.
+                    masked = mask_account(str(acct_id))
+                    ref = f"{label.strip()} / {masked}" if label and label.strip() else masked
 
                     summary_raw = self._get_json(client, f"/portfolio/{acct_id}/summary")
                     accounts.append(

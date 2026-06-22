@@ -182,12 +182,13 @@ def test_ibkr_account_masked(monkeypatch):
     assert result.positions[0].account_ref == "U***4567"
 
 
-def test_ibkr_account_label_overrides_mask(monkeypatch):
+def test_ibkr_account_label_includes_masked_suffix(monkeypatch):
+    # Label + masked ID so multiple accounts under the same label stay unique.
     _enable(monkeypatch)
     monkeypatch.setenv("IBKR_ACCOUNT_LABEL", "Main IBKR")
     _patch_client(monkeypatch, _happy_routes())
     result = IbkrAdapter().fetch_portfolio()
-    assert result.accounts[0].account_ref == "Main IBKR"
+    assert result.accounts[0].account_ref == "Main IBKR / U***4567"
 
 
 # ---------------------------------------------------------------------------
@@ -267,15 +268,33 @@ def test_ibkr_request_allows_allowlisted_get():
 # ---------------------------------------------------------------------------
 
 
-def test_tls_cacert_takes_precedence(monkeypatch):
-    monkeypatch.setenv("IBKR_CPAPI_CACERT", "/path/to/ca.pem")
-    assert resolve_verify("https://example.com/v1/api") == "/path/to/ca.pem"
+def test_tls_cacert_takes_precedence(monkeypatch, tmp_path):
+    ca = tmp_path / "ca.pem"
+    ca.write_text("dummy cert")
+    monkeypatch.setenv("IBKR_CPAPI_CACERT", str(ca))
+    assert resolve_verify("https://example.com/v1/api") == str(ca)
+
+
+def test_tls_cacert_nonexistent_file_raises(monkeypatch):
+    # A CACERT value that is not a real file (e.g. an inline comment leaked from .env)
+    # must fail clearly, not be handed to the SSL layer.
+    monkeypatch.setenv("IBKR_CPAPI_CACERT", "# leave blank — loopback TLS is allowed insecure")
+    with pytest.raises(IbkrConfigError):
+        resolve_verify("https://localhost:5000/v1/api")
 
 
 def test_tls_loopback_allows_insecure(monkeypatch):
     monkeypatch.delenv("IBKR_CPAPI_CACERT", raising=False)
     assert resolve_verify("https://localhost:5000/v1/api") is False
     assert resolve_verify("https://127.0.0.1:5000/v1/api") is False
+    assert resolve_verify("https://[::1]:5000/v1/api") is False
+
+
+def test_tls_hostile_127_hostname_not_loopback(monkeypatch):
+    """A DNS name that starts with '127.' is NOT loopback; should raise, not disable TLS."""
+    monkeypatch.delenv("IBKR_CPAPI_CACERT", raising=False)
+    with pytest.raises(IbkrConfigError):
+        resolve_verify("https://127.attacker.example/v1/api")
 
 
 def test_tls_remote_without_cacert_raises(monkeypatch):
@@ -297,3 +316,38 @@ def test_ibkr_remote_without_cacert_returns_error_status(monkeypatch):
     result = IbkrAdapter().fetch_portfolio()
     assert result.status == BrokerStatus.ERROR
     assert result.error == "tls configuration error"
+
+
+# ---------------------------------------------------------------------------
+# Non-finite float rejection
+# ---------------------------------------------------------------------------
+
+
+def test_ibkr_nan_and_infinity_in_position_become_none(monkeypatch):
+    """NaN / ±infinity broker values must be rejected so totals and JSON stay valid."""
+    _enable(monkeypatch)
+    routes = _happy_routes()
+    routes["/portfolio/U1234567/positions/0"] = [
+        {
+            "conid": 1,
+            "contractDesc": "TEST",
+            "position": float("nan"),
+            "avgCost": float("inf"),
+            "mktPrice": float("-inf"),
+            "mktValue": float("nan"),
+            "currency": "USD",
+            "assetClass": "STK",
+            "unrealizedPnl": float("nan"),
+        }
+    ]
+    _patch_client(monkeypatch, routes)
+    result = IbkrAdapter().fetch_portfolio()
+    assert result.status == BrokerStatus.OK
+    pos = result.positions[0]
+    assert pos.quantity == 0.0       # nan -> None -> 0.0 via `or 0.0`
+    assert pos.average_cost is None
+    assert pos.market_price is None
+    assert pos.market_value is None
+    assert pos.unrealized_pnl is None
+    from app.brokers.models import QuoteStatus
+    assert pos.quote_status == QuoteStatus.UNAVAILABLE  # market_price is None

@@ -105,8 +105,9 @@ Copy the root `.env.example` to `services/api/.env.local` and fill in your value
 | `IBKR_CPAPI_BASE_URL` | `GET /portfolio` — IBKR (Phase 14) | Client Portal Gateway base URL; default `https://localhost:5000/v1/api`. |
 | `IBKR_CPAPI_CACERT` | `GET /portfolio` — IBKR (Phase 14) | Optional CA bundle/cert path. If set, TLS is verified. Otherwise insecure TLS is allowed **only** for loopback hosts; a remote host with no CA bundle is a config error. |
 | `IBKR_ACCOUNT_LABEL` | `GET /portfolio` — IBKR (Phase 14) | Optional friendly label; otherwise the account is masked. |
-| `TIGER_ID`, `TIGER_ACCOUNT`, `TIGER_PRIVATE_KEY_PATH` | `GET /portfolio` — Tiger (Phase 14) | Backend-only. Private key must be PKCS#1. Missing any → Tiger reports `not_configured`. Never commit the key. |
-| `TIGER_ACCOUNT_LABEL` | `GET /portfolio` — Tiger (Phase 14) | Optional friendly label; otherwise the account is masked. |
+| `TIGER_PROPS_PATH` | `GET /portfolio` — Tiger (Phase 14) | Backend-only. Directory holding Tiger's `tiger_openapi_config.properties` (carries `private_key_pk1`, `tiger_id`, `account`, `license`, `env`). Preferred config method; the SDK loads everything from it. Takes precedence over the explicit trio below. Keep the folder outside the repo. |
+| `TIGER_ID`, `TIGER_ACCOUNT`, `TIGER_PRIVATE_KEY_PATH` | `GET /portfolio` — Tiger (Phase 14) | Backend-only. Explicit alternative to `TIGER_PROPS_PATH`. Private key must be PKCS#1. If `TIGER_PROPS_PATH` is unset, all three are required or Tiger reports `not_configured`. Never commit the key. |
+| `TIGER_ACCOUNT_LABEL` | `GET /portfolio` — Tiger (Phase 14) | Optional friendly label; otherwise the account is masked. Applies to either config method. |
 | `PORTFOLIO_BROKER_TIMEOUT` | `GET /portfolio` (Phase 14) | Per-broker fetch timeout in seconds (default 8). |
 
 **`SUPABASE_SERVICE_ROLE_KEY`** is used only in `app/db/supabase_client.py`.
@@ -149,8 +150,8 @@ It must never appear in `apps/web/` env vars, browser bundles, or client respons
   permitted **only** for loopback hosts — a remote host without a CA bundle is a config error,
   never a silent downgrade.
 - **Tiger (`tigeropen`):** `TigerAdapter` calls only allowlisted read methods (`get_positions`,
-  `get_prime_assets`/`get_assets`, `get_analytics_asset`) and never references `place_order`,
-  `modify_order`, `cancel_order`, or any order/transfer method.
+  `get_prime_assets`/`get_assets`) and never references `place_order`, `modify_order`,
+  `cancel_order`, or any order/transfer method.
 - **Residual risk:** broker-side read-only scoping is enabled where the broker supports it
   (e.g. IBKR's "Read-Only API" in TWS/IB Gateway config applies to the TWS API path). The CPAPI
   session inherits the logged-in user's full permissions — there is **no official per-session

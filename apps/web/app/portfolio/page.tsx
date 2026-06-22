@@ -92,9 +92,11 @@ const PNL_SOURCE_LABELS: Record<PnlSource, string> = {
 function TodayPnl({
   value,
   source,
+  currency,
 }: {
   value: number | null;
   source: PnlSource;
+  currency: string;
 }) {
   if (value === null || source === "unavailable") {
     return <span className="text-gray-400">today&apos;s P&amp;L unavailable</span>;
@@ -102,7 +104,7 @@ function TodayPnl({
   const tone = value >= 0 ? "text-green-700" : "text-red-700";
   return (
     <span>
-      <span className={tone}>{fmtNum(value)}</span>{" "}
+      <span className={tone}>{fmtMoney(value, currency)}</span>{" "}
       <span className="text-gray-400 text-xs">({PNL_SOURCE_LABELS[source]})</span>
     </span>
   );
@@ -156,7 +158,7 @@ function AccountCard({
         </p>
       </div>
       <p className="text-xs text-gray-500">
-        Today: <TodayPnl value={account.today_pnl} source={account.today_pnl_source} />
+        Today: <TodayPnl value={account.today_pnl} source={account.today_pnl_source} currency={account.currency ?? ""} />
       </p>
 
       {positions.length > 0 ? (

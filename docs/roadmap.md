@@ -448,8 +448,11 @@ been verified against the user's real accounts — see the definition of done.
 **Key decisions (Phase 14):**
 - **IBKR via the Client Portal Web API (CPAPI)** over httpx to a local Client Portal Gateway;
   the adapter is strictly GET-only (allowlisted paths) with strict local-TLS handling.
-- **Tiger via the official `tigeropen` SDK**; today's P&L is derived from `get_analytics_asset`
-  (day-over-day) and labelled `calculated`, distinct from IBKR's broker-reported daily P&L.
+- **Tiger via the official `tigeropen` SDK**; today's P&L is broker-reported per position
+  (`get_positions` carries a `today_pnl` field), with the account-level figure summed from
+  those. Fractional-share quantities use Tiger's `position_qty` (the scaled `quantity` field
+  is descaled by `position_scale`). Configurable via a `tiger_openapi_config.properties`
+  file (`TIGER_PROPS_PATH`) or the explicit id/account/key trio.
 - Read-only is enforced in code: per-adapter call allowlists, no generic broker-request method
   exported, no non-GET requests to IBKR. CPAPI sessions inherit the user's full permissions —
   documented residual risk mitigated by the allowlist + GET-only surface.
