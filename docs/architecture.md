@@ -193,7 +193,6 @@ Confirmation is a single atomic operation. When the user confirms an item:
 - `money_events` — confirmed expenses and income (Phase 9+)
 - `food_logs` — confirmed food entries (Phase 11+)
 - `calendar_intents` — confirmed calendar intentions (Phase 12+)
-- `investment_notes` — confirmed investment notes (Phase 14+)
 
 **Key principle:** A domain record is only written when:
 1. The user explicitly triggered confirmation on a valid pending inbox_item
@@ -247,7 +246,8 @@ edit, Confirm, and Reject controls.
 - Food log view (Phase 11+)
 - Calendar intents view (Phase 12+)
 - Daily review (Phase 13+)
-- Investments view (Phase 14+)
+- Read-only portfolio view aggregating Tiger and IBKR (Phase 14+)
+- Daily portfolio snapshot status/history (Phase 14.5+)
 
 **Key principle:** The frontend never calls AI directly. It reads from Supabase (for
 confirmed domain data) and calls backend API endpoints (for capture and confirmation actions).
@@ -311,7 +311,7 @@ Until Phase 15 (auth/RLS), the following rules apply:
 - `money_events` (Phase 9+)
 - `food_logs` (Phase 11+)
 - `calendar_intents` (Phase 12+)
-- `investment_notes` (Phase 14+)
+- portfolio snapshot runs, account observations, positions, and cash balances (Phase 14.5+)
 - `user_preferences` (Phase 15+)
 - `memory_chunks` — vector embeddings (Phase 15+)
 
@@ -324,6 +324,14 @@ and RLS is not enforced.
 
 These are not in scope until the core pipeline is working.
 
+- **Tiger/IBKR portfolio aggregation** — read-only broker adapters and normalized portfolio
+  view (Phase 14)
+- **Portfolio snapshots** — scheduled daily, transactional normalized observations in Supabase,
+  with an idempotent manual fallback, for later SQL analysis and memory derivation (Phase 14.5)
+- **Broker MCP tools** — expose normalized read-only portfolio capabilities after the adapter
+  contract is stable
+- **Broker execution** — future high-risk workflow requiring order preview, a separate explicit
+  execution confirmation, idempotency, broker order audit, and reconciliation
 - **Google Calendar** — sync confirmed `calendar_intents` to a real calendar event
 - **Email capture** — parse emails as capture events
 - **iOS Shortcuts** — alternative capture surface (voice-to-text via Apple)

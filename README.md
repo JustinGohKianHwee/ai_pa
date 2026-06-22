@@ -69,21 +69,25 @@ that reads or mutates personal data. The webhook validates its own secret.
 
 ## Current status
 
-**Phase 13 — daily review (implementation complete; manual verification pending).**
+**Phase 14 — read-only portfolio (implementation complete; manual verification pending).**
 
-`GET /daily_review?date=today` returns a read-only structured summary of today's activity:
-captures, confirmed items, rejected items, and pending items — with counts, item lists, and a
-deterministic summary string. No AI call on page load. `USER_TIMEZONE` is required (no silent
-UTC default); missing or invalid IANA name → 503. No migration — reads existing tables only.
-The `/review` dashboard page shows the daily summary. 270 backend tests pass.
+`GET /portfolio` aggregates current positions, cash, and today's performance across Tiger and
+Interactive Brokers, **read-only**. Brokers are fetched independently and concurrently with
+bounded per-broker timeouts, so one failing broker never hides the other. IBKR uses the Client
+Portal Web API (GET-only allowlist, strict local-TLS); Tiger uses the official `tigeropen` SDK
+(lazy-imported, read-method allowlist). Totals are grouped per currency and never summed across
+currencies, with per-metric completeness flags. No Supabase access, no broker writes, no
+migration. The `/portfolio` dashboard page shows positions, cash, totals, and per-broker status.
+Live broker connectivity is not yet verified against real accounts. 317 backend tests pass.
 
-Phase 12 (✓ complete): calendar intents — `confirm_calendar_item` RPC + `GET /calendar_intents`.
-Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription via Whisper.
+Phase 13 (✓ complete): daily review — `GET /daily_review`. Phase 12 (✓ complete): calendar
+intents. Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription via Whisper.
 Migrations `0001`–`0007` applied.
 
 Milestones: **Phase 6** — classification end-to-end. **Phase 7** — review layer. **Phase 8** —
 MVP (tasks + atomic confirm). **Phase 9** — finance expenses. **Phase 10** — voice transcription.
 **Phase 11** — food logs. **Phase 12** — calendar intents. **Phase 13** — daily review.
+**Phase 14** — read-only portfolio.
 
 ---
 
@@ -139,7 +143,7 @@ cd services/api
 # .venv/bin/pytest            # macOS/Linux
 ```
 
-Expected output: `270 passed` covering health, Supabase client, inbox read/review/edit,
+Expected output: `273 passed` covering health, Supabase client, inbox read/review/edit,
 task + finance + food + calendar confirmation, the tasks, finance, food, calendar, and daily
 review APIs, AI classification, Telegram webhook text capture, and voice transcription. All
 external calls are mocked.

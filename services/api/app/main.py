@@ -14,6 +14,7 @@ from app.routes.food import router as food_router  # noqa: E402
 from app.routes.health import router as health_router  # noqa: E402
 from app.routes.health_db import router as health_db_router  # noqa: E402
 from app.routes.inbox import router as inbox_router  # noqa: E402
+from app.routes.portfolio import router as portfolio_router  # noqa: E402
 from app.routes.review import router as review_router  # noqa: E402
 from app.routes.tasks import router as tasks_router  # noqa: E402
 from app.routes.telegram import router as telegram_router  # noqa: E402
@@ -34,4 +35,5 @@ app.include_router(finance_router)
 app.include_router(food_router)
 app.include_router(calendar_router)
 app.include_router(daily_review_router)
+app.include_router(portfolio_router)
 app.include_router(telegram_router)

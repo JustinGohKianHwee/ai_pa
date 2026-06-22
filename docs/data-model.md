@@ -269,23 +269,52 @@ conflict detection, and a more deliberate confirmation UX — deferred to a late
 
 ---
 
-### `investment_notes` — Phase 14+
+### Portfolio data — Phase 14 (external, read-only)
 
-Confirmed investment notes and intended transactions.
+Phase 14 does not add an `investment_notes` or portfolio-positions table. Current positions,
+cash, valuations, and today's performance are read from Tiger Brokers and IBKR on demand. The
+broker accounts remain the source of truth.
 
-**Key fields:**
-- `id`, `inbox_item_id` (FK), `user_id`
-- `ticker` — e.g. `CSPX`, `ES3`, `BTC`
-- `action_intent` — `buy`, `sell`, `note` (what the user intends or noted)
-- `amount` — optional (e.g. $350)
-- `currency`
-- `notes` — free text
-- `created_at`
+The backend normalizes broker responses into a stable API shape. Expected position fields
+include:
+- broker and masked account reference
+- broker instrument identifier and display symbol
+- quantity and average cost when supplied by the broker
+- market price, market value, unrealized P&L, and today's P&L when supplied
+- native currency
+- quote/data freshness and `as_of` timestamp when available
 
-**Why action_intent and not a transaction:**
-This is a note about an intended or planned action — not an executed trade. The system
-never executes financial transactions. Investment notes are for tracking your thinking,
-not for automating trades.
+Cash balances are represented separately and remain grouped by currency. Values in different
+currencies are never summed without an explicitly approved FX source.
+
+The existing `investment` inbox classification remains reviewable, but confirming one does not
+change portfolio positions or submit an order. Normalized portfolio snapshots are introduced
+separately in Phase 14.5; instrument-master persistence, MCP exposure, and broker execution
+records remain future entities that require separate designs.
+
+### Portfolio snapshots — Phase 14.5+
+
+Portfolio snapshots are daily historical observations of the normalized Phase 14 response.
+They are not the source of truth for current positions and are never written by a normal
+`GET /portfolio` refresh. A configurable scheduler creates at most one canonical snapshot per
+local portfolio day; a protected manual action uses the same idempotent service as a fallback.
+
+The Phase 14.5 migration is expected to separate:
+- snapshot-run metadata and idempotency information
+- per-broker/account summary observations
+- position observations
+- cash-balance observations
+
+Snapshot rows preserve stable opaque account identity, masked display labels, native currency,
+broker/instrument identifiers, quantities, valuations, P&L and its source, completeness flags,
+quote status, broker `as_of`, and snapshot timestamps where available. Raw broker responses,
+credentials, sessions, private keys, and full account numbers are never persisted.
+
+Each snapshot is saved transactionally: its run and all child observations commit or roll back
+together. The run records completeness and safe broker-level failure state so a missed or expired
+session cannot masquerade as a complete zero-position day. Later memory generation should derive
+concise facts from validated snapshot history; vector embeddings are not a substitute for
+SQL-based numeric analysis.
 
 ---
 

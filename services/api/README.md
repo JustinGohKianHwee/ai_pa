@@ -1,16 +1,18 @@
 # services/api — Backend API
 
-**Status: Phase 13 — daily review (implementation complete; manual verification pending).**
+**Status: Phase 14 — read-only portfolio (implementation complete; manual verification pending).**
 
-`GET /daily_review?date=today` returns today's captures, confirmed items, rejected items, and
-pending items as a structured read-only summary. Three Supabase queries: Q1 on `capture_events`
-(with embedded `inbox_items` via reverse-FK select), Q2+Q3 on `inbox_items` by `reviewed_at`.
-`USER_TIMEZONE` is required — missing or invalid IANA name → 503. Summary is deterministic
-(no AI call). No migration — reads existing tables only.
+`GET /portfolio` aggregates current positions, cash, and today's performance across Tiger and
+IBKR, read-only. Brokers are fetched independently and concurrently with bounded per-broker
+timeouts; one failing broker never hides the other (`partial_failure`). IBKR uses the Client
+Portal Web API (httpx, GET-only allowlist) against a local gateway; Tiger uses the official
+`tigeropen` SDK (lazy-imported). Totals are grouped per currency and never summed across
+currencies, with per-metric completeness flags. No Supabase access, no broker writes, no
+migration. See **Read-only enforcement** below.
 
-Phase 12 (✓ complete): calendar intents — `confirm_calendar_item` RPC + `GET /calendar_intents`.
-Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription.
-Migrations `0001`–`0007` applied. 270 tests pass (all mocked).
+Phase 13 (✓ complete): daily review — `GET /daily_review`. Phase 12 (✓ complete): calendar
+intents. Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription.
+Migrations `0001`–`0007` applied. 317 tests pass (all mocked).
 
 ## Planned stack
 - Python 3.11+
@@ -43,6 +45,13 @@ app/
   services/
     classifier.py    — OpenAI classification + per-type structured_json schemas
     transcriber.py   — OpenAI Whisper transcription (Phase 10+)
+  brokers/           — read-only portfolio adapters (Phase 14; no network at import time)
+    models.py        — broker-neutral contract (Position, CashBalance, CurrencyTotal, …)
+    masking.py       — mask_account() — never exposes full account numbers
+    base.py          — BrokerAdapter ABC (read-only fetch_portfolio())
+    tiger.py         — Tiger adapter (tigeropen, lazy-imported; SDK-method allowlist)
+    ibkr.py          — IBKR adapter (CPAPI via httpx; GET-only path allowlist; TLS resolution)
+    portfolio_service.py — concurrent orchestration, bounded executor, single-flight, totals
   routes/
     health.py        — GET /health (public, no DB)
     health_db.py     — GET /health/db (protected, DB connectivity check)
@@ -54,6 +63,7 @@ app/
     food.py          — GET /food_logs (food module, read-only, ?date=today filter)
     calendar.py      — GET /calendar_intents (calendar module, read-only)
     daily_review.py  — GET /daily_review (read-only daily activity summary, Phase 13)
+    portfolio.py     — GET /portfolio (read-only Tiger + IBKR portfolio, Phase 14)
     telegram.py      — POST /telegram/webhook (Telegram capture)
 tests/
   test_health.py             — /health endpoint tests
@@ -68,6 +78,9 @@ tests/
   test_food.py               — food logs API tests (mocked Supabase)
   test_calendar_intents.py   — calendar intents API tests (mocked Supabase)
   test_daily_review.py       — daily review API tests (mocked Supabase; 22 tests)
+  test_portfolio.py          — /portfolio orchestration, totals, thread-accumulation (mocked adapters)
+  test_brokers_ibkr.py       — IBKR adapter: paths/methods, TLS, allowlist, normalization (mocked httpx)
+  test_brokers_tiger.py      — Tiger adapter: SDK methods, normalization, allowlist (mocked SDK)
   test_telegram_webhook.py   — Telegram text webhook tests (mocked Supabase + httpx)
   test_telegram_voice.py     — Telegram voice transcription tests (Phase 10)
 ```
@@ -88,9 +101,18 @@ Copy the root `.env.example` to `services/api/.env.local` and fill in your value
 | `ANTHROPIC_API_KEY` | Possible future capabilities | Not required for Phase 6 classification |
 | `OPENAI_API_KEY` | Phase 6 classification and Phase 10 transcription | Required for AI classification |
 | `USER_TIMEZONE` | `GET /food_logs?date=today` (Phase 11+), `GET /daily_review` (Phase 13+) | IANA timezone string, e.g. `Asia/Singapore`. `food.py` defaults to UTC if unset. `daily_review.py` requires it — missing or invalid IANA name → 503. |
+| `IBKR_ENABLED` | `GET /portfolio` — IBKR (Phase 14) | `"true"` to enable; otherwise IBKR reports `not_configured`. Backend-only. |
+| `IBKR_CPAPI_BASE_URL` | `GET /portfolio` — IBKR (Phase 14) | Client Portal Gateway base URL; default `https://localhost:5000/v1/api`. |
+| `IBKR_CPAPI_CACERT` | `GET /portfolio` — IBKR (Phase 14) | Optional CA bundle/cert path. If set, TLS is verified. Otherwise insecure TLS is allowed **only** for loopback hosts; a remote host with no CA bundle is a config error. |
+| `IBKR_ACCOUNT_LABEL` | `GET /portfolio` — IBKR (Phase 14) | Optional friendly label; otherwise the account is masked. |
+| `TIGER_ID`, `TIGER_ACCOUNT`, `TIGER_PRIVATE_KEY_PATH` | `GET /portfolio` — Tiger (Phase 14) | Backend-only. Private key must be PKCS#1. Missing any → Tiger reports `not_configured`. Never commit the key. |
+| `TIGER_ACCOUNT_LABEL` | `GET /portfolio` — Tiger (Phase 14) | Optional friendly label; otherwise the account is masked. |
+| `PORTFOLIO_BROKER_TIMEOUT` | `GET /portfolio` (Phase 14) | Per-broker fetch timeout in seconds (default 8). |
 
 **`SUPABASE_SERVICE_ROLE_KEY`** is used only in `app/db/supabase_client.py`.
 It must never appear in `apps/web/` env vars, browser bundles, or client responses.
+**Broker credentials and account identifiers are backend-only**; they must never appear in
+`apps/web/` env vars (no `NEXT_PUBLIC_` broker vars), browser bundles, responses, or logs.
 
 ## Endpoints
 
@@ -109,10 +131,36 @@ It must never appear in `apps/web/` env vars, browser bundles, or client respons
 | `GET` | `/food_logs` | `DEV_ADMIN_TOKEN` | Read-only list of confirmed food logs, newest first. `?date=today` filters by the user's local calendar day (based on `USER_TIMEZONE`), using `created_at` UTC boundaries — not `logged_at`. Only `date=today` or no param accepted; other values return 422. |
 | `GET` | `/calendar_intents` | `DEV_ADMIN_TOKEN` | Read-only list of all confirmed calendar intents, ordered by `created_at DESC`. `proposed_datetime` is verbatim text — not parsed. No date filter. |
 | `GET` | `/daily_review` | `DEV_ADMIN_TOKEN` | Read-only daily activity summary. Only `?date=today` or no param accepted; other values return 422. Requires `USER_TIMEZONE` — missing or invalid → 503. Returns captured/confirmed/rejected/pending counts, item lists, and a deterministic summary string. No AI call. |
+| `GET` | `/portfolio` | `DEV_ADMIN_TOKEN` | Read-only Tiger + IBKR portfolio. Brokers fetched independently/concurrently with bounded per-broker timeouts; one failing broker never hides the other (`partial_failure`, per-broker `status`). Returns normalized positions, account summaries, cash, and `totals_by_currency` (grouped per currency, never summed across currencies, with per-metric completeness). Account refs masked. No Supabase access, no broker writes. Returns 200 even when brokers are unconfigured/unavailable (the failure is reported in the body). |
 | `POST` | `/telegram/webhook` | `TELEGRAM_WEBHOOK_SECRET` header | Telegram text and voice capture. Text → classify directly. Voice → download OGG → Whisper → classify. Non-text/voice updates silently ignored. |
 
 `/telegram/webhook` uses its own secret (`X-Telegram-Bot-Api-Secret-Token` header), **not**
 `DEV_ADMIN_TOKEN`. All other non-webhook routes use `DEV_ADMIN_TOKEN`.
+
+## Read-only enforcement & residual risk (Phase 14 brokers)
+
+`GET /portfolio` is read-only and enforces this in code, not by convention:
+
+- **IBKR (CPAPI):** `IbkrAdapter._request` is the only network entry point and rejects any
+  `(method, path)` not in a **GET-only allowlist** (auth status, accounts, summary, positions,
+  ledger, pnl/partitioned). No POST/PUT/DELETE is reachable, so order endpoints cannot be called
+  even by future code without editing the allowlist. No generic request method is exported.
+  Local TLS: a CA bundle (`IBKR_CPAPI_CACERT`) is used when set; otherwise insecure TLS is
+  permitted **only** for loopback hosts — a remote host without a CA bundle is a config error,
+  never a silent downgrade.
+- **Tiger (`tigeropen`):** `TigerAdapter` calls only allowlisted read methods (`get_positions`,
+  `get_prime_assets`/`get_assets`, `get_analytics_asset`) and never references `place_order`,
+  `modify_order`, `cancel_order`, or any order/transfer method.
+- **Residual risk:** broker-side read-only scoping is enabled where the broker supports it
+  (e.g. IBKR's "Read-Only API" in TWS/IB Gateway config applies to the TWS API path). The CPAPI
+  session inherits the logged-in user's full permissions — there is **no official per-session
+  read-only scope** — so this is a documented residual risk, mitigated by the GET-only allowlist
+  and the absence of any order code path. A compromised backend with a live session could call
+  trading endpoints *only if such code were added*; Phase 14 ships none.
+
+Broker credentials, private keys, account numbers, and raw broker responses never appear in
+responses or logs. Account references are masked. Brokers run in a bounded thread pool with a
+per-broker single-flight guard, so a hung broker cannot accumulate background threads.
 
 ## Development route protection
 
@@ -180,7 +228,7 @@ cd services/api
 # .venv/bin/pytest            # macOS/Linux
 ```
 
-Expected: `270 passed` — no real Supabase, OpenAI, or Telegram calls.
+Expected: `273 passed` — no real Supabase, OpenAI, or Telegram calls.
 
 ## Local curl example — Telegram-like payload
 
@@ -238,4 +286,5 @@ Expected response:
 - Phase 10: Voice transcription ✓ complete, `supabase/migrations/0004_capture_transcription_status.sql` (widens `processing_status` CHECK), `supabase/migrations/0005_capture_unique_source.sql` (UNIQUE on capture_events + inbox_items), `app/services/transcriber.py` (Whisper-1 service, English pinned), `telegram.py` extended with `TelegramVoice` model, `_transcribe_and_update`, and `_capture_voice` path. 25 MB audio limit enforced pre- and post-download. Two `agent_runs` rows on happy path (transcriber + text_classifier). All inbox INSERTs wrapped with conflict recovery so concurrent retries never produce duplicate inbox rows. Manual E2E passed.
 - Phase 11: Food logs module ✓ complete, `supabase/migrations/0006_food_logs.sql` (`food_logs` table + `confirm_food_item` atomic RPC), `app/routes/food.py` (`GET /food_logs` with `?date=today` filtering via `USER_TIMEZONE`-aware UTC boundaries), food branch in `confirm` (`review.py`). `logged_at` stored as verbatim TEXT; date filtering uses `created_at`. `tzdata` added to requirements for cross-platform timezone support. 235 tests pass.
 - Phase 12: Calendar intents module ✓ complete, `supabase/migrations/0007_calendar_intents.sql` (`calendar_intents` table + `confirm_calendar_item` atomic RPC), `app/routes/calendar.py` (`GET /calendar_intents`), calendar branch in `confirm` (`review.py`). `proposed_datetime` stored as verbatim TEXT; no date filter; ordered by `created_at DESC`. No `status` column, no `user_id`. 248 tests pass.
-- Phase 13: Daily review module (implementation complete; manual verification pending), `app/routes/daily_review.py` (`GET /daily_review`). Three read-only queries: `capture_events.created_at` for captures (embedded inbox_items via reverse-FK select), `inbox_items.reviewed_at` for confirmed/rejected. `USER_TIMEZONE` required — missing or invalid → 503. Deterministic summary, no AI call, no migration. 270 tests pass.
+- Phase 13: Daily review module ✓ complete, `app/routes/daily_review.py` (`GET /daily_review`). Three read-only queries: `capture_events.created_at` for captures (embedded inbox_items via reverse-FK select), `inbox_items.reviewed_at` for confirmed/rejected. `USER_TIMEZONE` required — missing or invalid → 503. Deterministic summary, no AI call, no migration. Automated and manual E2E verification passed. 273 tests pass.
+- Phase 14: Read-only portfolio (implementation complete; manual verification pending), `app/brokers/` (models, masking, base, `tiger.py`, `ibkr.py`, `portfolio_service.py`) + `app/routes/portfolio.py` (`GET /portfolio`). IBKR via Client Portal Web API (httpx, GET-only allowlist, strict local-TLS); Tiger via `tigeropen` (lazy-imported, SDK-method allowlist). Concurrent fetch with bounded executor + per-broker single-flight; totals grouped per currency with per-metric completeness; account masking; no Supabase access; no migration. New deps: `tigeropen`. 317 tests pass (44 new, all mocked).

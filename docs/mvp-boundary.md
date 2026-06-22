@@ -64,7 +64,8 @@ These features are valid long-term goals. They are not in the MVP.
 | Finance module | Requires money_events schema and review UX |
 | Food logs | Requires food_logs schema |
 | Calendar intents | Requires calendar_intents schema + careful UX |
-| Investment notes | Requires investment_notes schema |
+| Read-only Tiger/IBKR portfolio | Requires broker API credentials, adapter normalization, and careful handling of currencies and data freshness |
+| Daily portfolio snapshots | Requires verified broker adapters, transactional normalized persistence, portfolio-day idempotency, scheduler/retry behavior, and broker-session availability handling |
 | Journal entries | Requires journal table or notes schema |
 | Daily / weekly review | Requires sufficient data to aggregate |
 | Vector memory / semantic search | Only useful with months of data |

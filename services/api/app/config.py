@@ -25,3 +25,15 @@ TELEGRAM_USER_ID: str | None = os.getenv("TELEGRAM_USER_ID")
 
 # Development security guard — required on all non-webhook routes (Phases 4–15)
 DEV_ADMIN_TOKEN: str | None = os.getenv("DEV_ADMIN_TOKEN")
+
+# Brokers — read-only portfolio (Phase 14). Backend-only; never exposed to the frontend.
+# Adapters read these at request time via os.getenv; these references are for documentation.
+IBKR_ENABLED: str | None = os.getenv("IBKR_ENABLED")
+IBKR_CPAPI_BASE_URL: str | None = os.getenv("IBKR_CPAPI_BASE_URL")
+IBKR_CPAPI_CACERT: str | None = os.getenv("IBKR_CPAPI_CACERT")
+IBKR_ACCOUNT_LABEL: str | None = os.getenv("IBKR_ACCOUNT_LABEL")
+TIGER_ID: str | None = os.getenv("TIGER_ID")
+TIGER_ACCOUNT: str | None = os.getenv("TIGER_ACCOUNT")
+TIGER_PRIVATE_KEY_PATH: str | None = os.getenv("TIGER_PRIVATE_KEY_PATH")
+TIGER_ACCOUNT_LABEL: str | None = os.getenv("TIGER_ACCOUNT_LABEL")
+PORTFOLIO_BROKER_TIMEOUT: str | None = os.getenv("PORTFOLIO_BROKER_TIMEOUT")

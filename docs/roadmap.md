@@ -395,7 +395,7 @@ detection.
 
 ---
 
-## Phase 13 — Daily review
+## Phase 13 — Daily review ✓ complete
 
 **Goal:** A daily review view that surfaces what was captured and reviewed today.
 
@@ -420,22 +420,119 @@ detection.
 
 **Definition of done:**
 - `GET /daily_review` returns correct counts for today's activity; `/review` page displays them
-- Implementation complete; manual verification pending
+- Automated verification and manual E2E passed: timezone-aware capture/review counts,
+  deterministic summary, rejected-only behavior, pending transitions, and `/review` display
+  were confirmed against the local environment
 
 ---
 
-## Phase 14 — Investments module
+## Phase 14 — Read-only portfolio aggregation (implementation complete; manual verification pending)
 
-**Goal:** Confirmed investment notes are stored and visible.
+**Goal:** Show current portfolio positions and today's performance across Tiger Brokers and
+Interactive Brokers (IBKR), using broker APIs as the source of truth.
+
+**Status:** Backend (`app/brokers/` adapters + `GET /portfolio`), frontend (`/portfolio`), and
+tests are implemented; 317 backend tests pass (all mocked). Live broker connectivity has not yet
+been verified against the user's real accounts — see the definition of done.
 
 **What gets built:**
-- `investment_notes` table migration
-- Dashboard `/investments` page: investment notes list
-- `GET /investment_notes`
-- Basic display: ticker, action intent, amount, date, notes
+- Backend-only read-only adapters for Tiger and IBKR, behind a small normalized portfolio
+  interface
+- `GET /portfolio` protected by `DEV_ADMIN_TOKEN`
+- Dashboard `/portfolio` page showing positions, cash, market value, unrealized P&L, today's
+  P&L, broker/account source, currency, quote freshness, and last-updated time when available
+- Independent broker health/error reporting so one unavailable broker does not hide data from
+  the other
+- Totals grouped by currency; currencies are not added together without an explicit FX source
+
+**Key decisions (Phase 14):**
+- **IBKR via the Client Portal Web API (CPAPI)** over httpx to a local Client Portal Gateway;
+  the adapter is strictly GET-only (allowlisted paths) with strict local-TLS handling.
+- **Tiger via the official `tigeropen` SDK**; today's P&L is derived from `get_analytics_asset`
+  (day-over-day) and labelled `calculated`, distinct from IBKR's broker-reported daily P&L.
+- Read-only is enforced in code: per-adapter call allowlists, no generic broker-request method
+  exported, no non-GET requests to IBKR. CPAPI sessions inherit the user's full permissions —
+  documented residual risk mitigated by the allowlist + GET-only surface.
+- Per-broker bounded timeouts with a bounded executor and per-broker single-flight guard so a
+  hung broker cannot accumulate background threads across refreshes.
+- Currency totals track completeness per metric; an incomplete subtotal is never presented as a
+  full total.
+- Broker APIs are authoritative for positions. Natural-language captures and confirmed
+  `investment` inbox items do not directly modify portfolio positions.
+- This phase is read-only: no orders, cancellations, transfers, or brokerage writes.
+- Broker credentials and account identifiers remain backend-only and are never returned to the
+  browser or written to logs.
+- No portfolio table or snapshot migration is introduced in the initial phase. Explicit,
+  normalized snapshots are added separately in Phase 14.5 after both live adapters are verified.
+- MCP may later expose the normalized read-only portfolio tools, but MCP and trade execution are
+  not part of Phase 14.
+
+**What must NOT be built yet:**
+- Trade placement, cancellation, modification, or automated execution
+- Order previews presented as executable authorization
+- Portfolio updates derived from Telegram or AI output
+- Market recommendations or investment advice
+- Historical performance charts or scheduled snapshots
+- Cross-currency totals without an approved FX source
+- MCP tools or brokerage write permissions
 
 **Definition of done:**
-- "Buy $350 CSPX this month" → confirmed inbox item → investment note → visible in investments view
+- Real read-only Tiger and IBKR connections are manually verified against the user's accounts
+- `/portfolio` shows normalized positions from both brokers and identifies their source/freshness
+- Partial failure is visible and usable: one broker can fail while the other still returns data
+- Refreshing the portfolio performs no brokerage or database writes
+
+---
+
+## Phase 14.5 — Daily portfolio snapshots
+
+**Goal:** Preserve one normalized Tiger/IBKR portfolio observation per local portfolio day in
+Supabase so later SQL analysis and memory generation can use reliable historical data.
+
+**What gets built:**
+- Supabase migrations for snapshot-run, broker-account, position, and cash-balance snapshot data
+- A scheduler-compatible backend snapshot job using a configurable time and `USER_TIMEZONE`
+- A protected manual `POST /portfolio/snapshots` fallback using the same snapshot service
+- Idempotency protection so retries, scheduler restarts, or manual fallback do not create more
+  than one canonical snapshot for the same portfolio day
+- A small read-only snapshot endpoint for verifying the latest saved observation
+- Snapshot-run status and safe broker-level failure metadata so missing/stale broker data is not
+  mistaken for a complete portfolio
+
+**Key decisions (Phase 14.5):**
+- Broker APIs remain authoritative for current positions. Supabase snapshots are historical
+  observations and may be stale.
+- Store normalized fields only — never raw broker responses, credentials, session data, private
+  keys, or full account numbers.
+- Use a stable opaque account key plus a masked display label; do not use a full broker account
+  number as a database identifier.
+- Preserve native currency, P&L source (`broker`, `calculated`, `unavailable`), completeness,
+  quote status, broker `as_of`, and snapshot timestamps.
+- Snapshot persistence is atomic: the run and all associated account/position/cash rows commit
+  together or roll back together.
+- "Daily" uses a configured portfolio cutoff rather than pretending all assets share one market
+  close. The recommended initial cutoff is after the latest relevant market close, with a buffer
+  for broker data to settle; the exact time remains configurable.
+- Scheduled execution requires the local machine, backend prerequisites, and broker sessions to
+  be available. A protected manual retry remains available when a broker session has expired.
+- This explicit external-data snapshot flow is not an inbox confirmation and does not create or
+  modify tasks, expenses, food logs, calendar intents, or broker positions.
+
+**What must NOT be built yet:**
+- A snapshot on every `/portfolio` page load
+- Per-market or intraday high-frequency snapshots
+- Historical charts, performance attribution, or FX conversion
+- Vector embeddings or generated memory statements
+- Brokerage writes, MCP tools, or trade execution
+
+**Definition of done:**
+- The configured daily job creates one normalized snapshot for the portfolio day when broker
+  sessions are available
+- Scheduler retries and a manual retry are idempotent for that portfolio day
+- Partial or failed persistence leaves no half-written snapshot
+- The latest snapshot can be read back without exposing broker secrets or full account numbers
+- Broker unavailability is recorded safely and never presented as a complete snapshot
+- Refreshing `/portfolio` creates no database rows
 
 ---
 

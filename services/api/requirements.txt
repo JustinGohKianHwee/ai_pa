@@ -5,5 +5,9 @@ supabase>=2.3.0
 httpx>=0.27.0
 openai>=1.0.0
 tzdata>=2024.1
+# Tiger Brokers OpenAPI SDK (Phase 14, read-only). Lazy-imported by app/brokers/tiger.py;
+# tests mock the adapter boundary and never import it. IBKR uses the Client Portal Web API
+# over httpx (already listed) and needs no extra Python package.
+tigeropen>=3.0.0
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
