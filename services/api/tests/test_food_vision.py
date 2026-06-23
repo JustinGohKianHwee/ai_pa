@@ -55,6 +55,33 @@ async def test_food_image_estimates(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_caption_is_sent_as_authoritative_context(monkeypatch):
+    """A caption must reach the model framed as authoritative context, not be dropped."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    client = _mock_openai(_food_json())
+    with patch("app.services.food_vision.AsyncOpenAI", return_value=client):
+        await classify_food_image(b"imgbytes", "half portion, no rice")
+    messages = client.chat.completions.create.call_args.kwargs["messages"]
+    user_parts = messages[-1]["content"]
+    text_part = next(p["text"] for p in user_parts if p["type"] == "text")
+    assert "half portion, no rice" in text_part
+    assert "authoritative" in text_part.lower()
+
+
+@pytest.mark.asyncio
+async def test_blank_caption_uses_default_prompt(monkeypatch):
+    """An empty/whitespace caption falls back to the default instruction (no caption block)."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    client = _mock_openai(_food_json())
+    with patch("app.services.food_vision.AsyncOpenAI", return_value=client):
+        await classify_food_image(b"imgbytes", "   ")
+    messages = client.chat.completions.create.call_args.kwargs["messages"]
+    user_parts = messages[-1]["content"]
+    text_part = next(p["text"] for p in user_parts if p["type"] == "text")
+    assert "caption" not in text_part.lower()
+
+
+@pytest.mark.asyncio
 async def test_not_food_result(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     content = json.dumps(

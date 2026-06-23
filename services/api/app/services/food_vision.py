@@ -28,6 +28,12 @@ You analyse a single photo and decide whether it shows food/drink. If it does, i
 dish and estimate its nutrition for the portion shown. Estimates are approximate — the user \
 will review and correct them.
 
+If the user provides a caption, treat it as AUTHORITATIVE context that overrides your visual \
+guess: it may name the dish, list ingredients, specify the portion size, or note details the \
+photo cannot show (e.g. "half portion", "no rice", "cooked in butter", "oat milk not dairy"). \
+Use it to disambiguate the image and to scale the nutrition estimate. If the caption clearly \
+describes food, set "is_food": true even when the image is ambiguous.
+
 Respond ONLY with valid JSON in this exact shape — no commentary:
 {
   "is_food": true|false,
@@ -93,7 +99,15 @@ async def classify_food_image(
 
     b64 = base64.b64encode(image_bytes).decode("ascii")
     data_url = f"data:image/jpeg;base64,{b64}"
-    user_text = (caption or "").strip() or "Identify the food and estimate its nutrition."
+    user_text = "Identify the food and estimate its nutrition for the portion shown."
+    clean_caption = (caption or "").strip()
+    if clean_caption:
+        # Frame the caption as authoritative context rather than dumping it raw, so the
+        # model weights it over a pure visual guess (e.g. portion size, hidden ingredients).
+        user_text += (
+            "\n\nThe user added this caption describing the food — treat it as authoritative "
+            f'context for the dish, ingredients, and portion:\n"{clean_caption}"'
+        )
 
     try:
         oai = AsyncOpenAI(api_key=api_key, timeout=60.0)
