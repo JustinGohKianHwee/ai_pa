@@ -303,6 +303,38 @@ only. `GET /exercise_logs` also returns `totals` (summed `duration_min`, `distan
 
 ---
 
+### `habits` — Phase 20 (implemented, `supabase/migrations/0015_habits_goals.sql`)
+
+Confirmed habit **definitions**. One row per source `inbox_item` (UNIQUE `inbox_item_id`), written
+only by `confirm_habit_item` in the same transaction that confirms the item and appends one
+`memory_events` row (`domain='habit'`, payload `{name, cadence, target}`). **Definition-only in
+Phase 20** — no check-ins, streaks, recurrence, or reminders; immutable, so no `updated_at`.
+
+**Columns:** `id`, `inbox_item_id` (UNIQUE FK), `owner_id` (default-filled, not null), `name`
+(not null), `cadence` (free text e.g. "daily" — **not** enum-constrained, **not** a scheduler),
+`target` (text), `notes` (text), `created_at`. RLS deny-by-default; service-role only.
+
+### `goals` — Phase 20 (implemented, `supabase/migrations/0015_habits_goals.sql`)
+
+Confirmed goals. One row per source `inbox_item` (UNIQUE `inbox_item_id`), written only by
+`confirm_goal_item` (appends one `memory_events` row, `domain='goal'`, payload
+`{title, target, target_date, status}`). **`status` is the only field mutable after confirmation**
+(`active` / `achieved` / `abandoned`) via `PATCH /goals/{id}/status`, mirroring `tasks.complete`.
+**Status changes do NOT write `memory_events`** — the 15b contract logs confirmations/snapshots
+only.
+
+**Columns:** `id`, `inbox_item_id` (UNIQUE FK), `owner_id` (default-filled, not null), `title`
+(not null), `description` (text), `target` (free-text target/metric — no numeric split this
+phase), `target_date` (**text**, verbatim AI date, not parsed), `status` (CHECK
+active/achieved/abandoned, default `active`), `created_at`, `updated_at` (via the shared
+`set_updated_at()` trigger). RLS deny-by-default; service-role only.
+
+> Migration `0015` also **widens the `inbox_items.item_type` CHECK** to include `habit` and `goal`
+> (required for any new item_type — see the Phase 18 `exercise` precedent). No progress
+> computation, attribution, or linking to records (deferred to Phase 25).
+
+---
+
 ### Portfolio data — Phase 14 (external, read-only)
 
 Phase 14 does not add an `investment_notes` or portfolio-positions table. Current positions,

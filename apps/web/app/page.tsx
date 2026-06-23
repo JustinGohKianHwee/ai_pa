@@ -8,6 +8,8 @@ import type { TasksResponse } from "./tasks/types";
 import type { MoneyEventsResponse } from "./finance/types";
 import type { FoodLogsResponse } from "./food/types";
 import type { ExerciseLogsResponse } from "./exercise/types";
+import type { HabitsResponse } from "./habits/types";
+import type { GoalsResponse } from "./goals/types";
 import type { CalendarIntentsResponse } from "./calendar/types";
 import type { InboxResponse } from "./inbox/types";
 import type { DailyReview } from "./review/types";
@@ -33,16 +35,19 @@ async function getJson<T>(path: string): Promise<T | null> {
 }
 
 export default async function DashboardPage() {
-  const [snapshots, tasks, finance, food, exercise, calendar, inbox, review] = await Promise.all([
-    getJson<SnapshotListResponse>("/portfolio/snapshots"),
-    getJson<TasksResponse>("/tasks"),
-    getJson<MoneyEventsResponse>("/money_events"),
-    getJson<FoodLogsResponse>("/food_logs?date=today"),
-    getJson<ExerciseLogsResponse>("/exercise_logs?date=today"),
-    getJson<CalendarIntentsResponse>("/calendar_intents"),
-    getJson<InboxResponse>("/inbox"),
-    getJson<DailyReview>("/daily_review"),
-  ]);
+  const [snapshots, tasks, finance, food, exercise, habits, goals, calendar, inbox, review] =
+    await Promise.all([
+      getJson<SnapshotListResponse>("/portfolio/snapshots"),
+      getJson<TasksResponse>("/tasks"),
+      getJson<MoneyEventsResponse>("/money_events"),
+      getJson<FoodLogsResponse>("/food_logs?date=today"),
+      getJson<ExerciseLogsResponse>("/exercise_logs?date=today"),
+      getJson<HabitsResponse>("/habits"),
+      getJson<GoalsResponse>("/goals"),
+      getJson<CalendarIntentsResponse>("/calendar_intents"),
+      getJson<InboxResponse>("/inbox"),
+      getJson<DailyReview>("/daily_review"),
+    ]);
 
   // Portfolio tile — latest snapshot + value sparkline (fast, DB-only).
   const latest = snapshots?.items?.[0] ?? null;
@@ -65,6 +70,8 @@ export default async function DashboardPage() {
   const caloriesToday = food?.totals?.calories ?? null;
   const workoutsToday = exercise?.total ?? null;
   const exerciseMinsToday = exercise?.totals?.duration_min ?? null;
+  const habitsCount = habits?.total ?? null;
+  const activeGoals = goals?.items?.filter((g) => g.status === "active").length ?? null;
   const upcoming = calendar?.items ?? [];
   const pending = inbox?.total ?? null;
 
@@ -216,6 +223,18 @@ export default async function DashboardPage() {
           label="Exercise today"
           value={exerciseMinsToday ? `${fmtInt(exerciseMinsToday)} min` : "—"}
           sub={workoutsToday ? `${workoutsToday} workout${workoutsToday !== 1 ? "s" : ""}` : "logged"}
+        />
+        <MetricTile
+          href="/goals"
+          label="Active goals"
+          value={activeGoals === null ? "—" : fmtInt(activeGoals)}
+          sub="in progress"
+        />
+        <MetricTile
+          href="/habits"
+          label="Habits"
+          value={habitsCount === null ? "—" : fmtInt(habitsCount)}
+          sub="tracked"
         />
         <MetricTile href="/calendar" label="Calendar" value={fmtInt(upcoming.length)} sub="intentions" />
       </BentoGrid>

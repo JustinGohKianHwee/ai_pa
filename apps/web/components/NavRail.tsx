@@ -12,6 +12,8 @@ import {
   Calendar,
   ClipboardList,
   History,
+  Repeat,
+  Target,
   PieChart,
   LogOut,
 } from "lucide-react";
@@ -25,6 +27,8 @@ const items = [
   { href: "/finance", label: "Finance", icon: Wallet },
   { href: "/food", label: "Food", icon: Apple },
   { href: "/exercise", label: "Exercise", icon: Dumbbell },
+  { href: "/habits", label: "Habits", icon: Repeat },
+  { href: "/goals", label: "Goals", icon: Target },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/review", label: "Review", icon: ClipboardList },
   { href: "/timeline", label: "Timeline", icon: History },

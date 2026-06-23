@@ -196,6 +196,9 @@ Confirmation is a single atomic operation. When the user confirms an item:
 - `money_events` — confirmed expenses and income (Phase 9+)
 - `food_logs` — confirmed food entries (Phase 11+)
 - `calendar_intents` — confirmed calendar intentions (Phase 12+)
+- `exercise_logs` — confirmed workouts (Phase 18+)
+- `habits` — confirmed habit definitions (Phase 20+)
+- `goals` — confirmed goals; status mutable post-confirm (Phase 20+)
 
 **Key principle:** A domain record is only written when:
 1. The user explicitly triggered confirmation on a valid pending inbox_item
@@ -253,6 +256,7 @@ edit, Confirm, and Reject controls.
 - Daily portfolio snapshot status/history (Phase 14.5+)
 - Exercise log view (Phase 18+)
 - Daily Life Timeline — read-only chronological feed over `memory_events` (Phase 19+)
+- Habits and Goals views (Phase 20+)
 
 **Key principle:** The frontend never calls AI directly. It reads from Supabase (for
 confirmed domain data) and calls backend API endpoints (for capture and confirmation actions).

@@ -12,6 +12,8 @@ const VALID_ITEM_TYPES = [
   "calendar",
   "food",
   "exercise",
+  "habit",
+  "goal",
   "investment",
   "note",
   "journal",
@@ -77,6 +79,20 @@ export function InboxCard({ item }: { item: InboxItem }) {
             : null,
           calories !== null ? `${Math.round(calories)} kcal` : null,
         ]
+          .filter(Boolean)
+          .join(" · ") || null
+      : null;
+
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v : null);
+  const habitSummary =
+    item.item_type === "habit"
+      ? [str(sj.cadence), str(sj.target) ? `target ${str(sj.target)}` : null]
+          .filter(Boolean)
+          .join(" · ") || null
+      : null;
+  const goalSummary =
+    item.item_type === "goal"
+      ? [str(sj.target), str(sj.target_date) ? `by ${str(sj.target_date)}` : null]
           .filter(Boolean)
           .join(" · ") || null
       : null;
@@ -186,6 +202,9 @@ export function InboxCard({ item }: { item: InboxItem }) {
       {exerciseSummary ? (
         <p className="numeric text-sm text-muted">{exerciseSummary}</p>
       ) : null}
+
+      {habitSummary ? <p className="text-sm text-muted">{habitSummary}</p> : null}
+      {goalSummary ? <p className="text-sm text-muted">{goalSummary}</p> : null}
 
       {needsManual ? (
         <p className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-warning">

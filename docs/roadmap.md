@@ -707,10 +707,21 @@ reviewed (read-only guard, keyset pagination, defensive formatting), merged, man
 passed. *(Known limitation: only confirmations/snapshots from Phase 15b onward appear; pre-15b
 records are not backfilled.)*
 
-### Phase 20 — Habits & goals — *enables feature 4*
-Recurring habits (streaks) and goals (target + progress) through capture → confirm. `goals` and
-`habits` tables + confirm RPCs (memory-event write preserved). Goals are the anchor for the
-later financial-intelligence housing-fund and attribution work.
+### Phase 20 — Habits & goals ✓ implementation complete (migration/manual verification pending) — *enables feature 4*
+Two definition-style domain modules through capture → confirm, one migration
+`0015_habits_goals.sql`. **Habits are definition-only** (name, cadence [free text], target, notes;
+immutable — no check-ins, streaks, recurrence, or reminders). **Goals** (title, description,
+target, target_date, status) support a **minimal status toggle** (active/achieved/abandoned) via
+`PATCH /goals/{id}/status`, mirroring `tasks.complete`; goal status changes do **not** write
+memory_events. Both `confirm_habit_item`/`confirm_goal_item` RPCs are atomic + idempotent and
+write one compact `memory_events` row (so habits/goals appear on the timeline). Migration also
+**widens `inbox_items.item_type`** to add `habit`+`goal` (Phase 18 lesson; guard test enforces);
+classifier gains both types + schemas + habit-vs-task / goal-vs-note disambiguation; `GET /habits`,
+`GET /goals`, `/habits` + `/goals` pages, two dashboard tiles, NavRail entries, inbox read-outs.
+Goals anchor the later financial-intelligence (Phase 22) and attribution (Phase 25) work. 438
+backend tests pass; frontend lint/tsc/build clean. **Manual prerequisite:** apply `0015` (replace
+`<OWNER_USER_ID>`). **Out of scope (deferred):** check-ins/streaks, recurrence, reminders,
+attribution, progress intelligence.
 
 ### Phase 21 — Decision Journal — *feature 3*
 New domain module: `decisions` (decision, reason, options considered, expected outcome,

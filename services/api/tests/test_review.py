@@ -1531,3 +1531,121 @@ def test_confirm_calendar_needs_manual_classification_returns_409(monkeypatch):
     with patch("app.routes.review.get_supabase_client", return_value=mock):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
     assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Phase 20 — habit & goal confirm dispatch
+# ---------------------------------------------------------------------------
+
+PENDING_HABIT_ROW = {
+    "id": INBOX_ID,
+    "item_type": "habit",
+    "review_status": "pending",
+    "title": "Meditate",
+    "body": "",
+    "confidence": 0.8,
+    "reviewed_at": None,
+    "updated_at": "2024-01-01T12:00:00+00:00",
+    "structured_json": {"name": "Meditate", "cadence": "daily", "target": "10 min"},
+}
+HABIT_ROW = {
+    "id": "habit-uuid-1",
+    "inbox_item_id": INBOX_ID,
+    "name": "Meditate",
+    "cadence": "daily",
+    "target": "10 min",
+    "notes": None,
+    "created_at": "2024-01-01T12:05:00+00:00",
+}
+HABIT_RPC_RESULT = {
+    "inbox_item": {**PENDING_HABIT_ROW, "review_status": "confirmed", "reviewed_at": "2024-01-01T13:00:00+00:00"},
+    "habit": HABIT_ROW,
+}
+
+PENDING_GOAL_ROW = {
+    "id": INBOX_ID,
+    "item_type": "goal",
+    "review_status": "pending",
+    "title": "Reach 100k",
+    "body": "",
+    "confidence": 0.8,
+    "reviewed_at": None,
+    "updated_at": "2024-01-01T12:00:00+00:00",
+    "structured_json": {"title": "Reach 100k", "target": "100000", "target_date": "end 2027"},
+}
+GOAL_ROW = {
+    "id": "goal-uuid-1",
+    "inbox_item_id": INBOX_ID,
+    "title": "Reach 100k",
+    "description": None,
+    "target": "100000",
+    "target_date": "end 2027",
+    "status": "active",
+    "created_at": "2024-01-01T12:05:00+00:00",
+    "updated_at": "2024-01-01T12:05:00+00:00",
+}
+GOAL_RPC_RESULT = {
+    "inbox_item": {**PENDING_GOAL_ROW, "review_status": "confirmed", "reviewed_at": "2024-01-01T13:00:00+00:00"},
+    "goal": GOAL_ROW,
+}
+
+
+def _make_hg_confirm_mock(inbox_row: dict, rpc_result=None) -> MagicMock:
+    """inbox_items.select.eq.execute → [inbox_row]; rpc(...).execute → rpc_result."""
+    client_mock = MagicMock()
+    inbox_tbl = MagicMock()
+    inbox_tbl.select.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[inbox_row]
+    )
+    client_mock.table.return_value = inbox_tbl
+    client_mock.rpc.return_value.execute.return_value = MagicMock(data=rpc_result)
+    return client_mock
+
+
+def test_confirm_pending_habit_creates_habit(monkeypatch):
+    mock = _make_hg_confirm_mock(PENDING_HABIT_ROW, rpc_result=HABIT_RPC_RESULT)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inbox_item"]["review_status"] == "confirmed"
+    assert body["habit"]["name"] == "Meditate"
+    assert mock.rpc.call_args.args[0] == "confirm_habit_item"
+
+
+def test_confirm_habit_empty_name_returns_400(monkeypatch):
+    row = {**PENDING_HABIT_ROW, "structured_json": {"name": "  "}}
+    mock = _make_hg_confirm_mock(row)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_pending_goal_creates_goal(monkeypatch):
+    mock = _make_hg_confirm_mock(PENDING_GOAL_ROW, rpc_result=GOAL_RPC_RESULT)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["goal"]["status"] == "active"
+    assert mock.rpc.call_args.args[0] == "confirm_goal_item"
+
+
+def test_confirm_goal_invalid_structured_json_returns_400(monkeypatch):
+    # extra field violates GoalStructuredJson(extra="forbid")
+    row = {**PENDING_GOAL_ROW, "structured_json": {"title": "x", "progress": 50}}
+    mock = _make_hg_confirm_mock(row)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_goal_empty_title_returns_400(monkeypatch):
+    row = {**PENDING_GOAL_ROW, "structured_json": {"title": ""}}
+    mock = _make_hg_confirm_mock(row)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()

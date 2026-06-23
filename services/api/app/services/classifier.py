@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 CLASSIFICATION_MODEL = "gpt-4o-mini"
 
 ItemType = Literal[
-    "task", "finance", "calendar", "food", "exercise", "investment", "note", "journal", "unknown"
+    "task", "finance", "calendar", "food", "exercise", "habit", "goal",
+    "investment", "note", "journal", "unknown",
 ]
 
 SYSTEM_PROMPT = """\
@@ -37,6 +38,8 @@ Allowed types and the EXACT fields to extract for each (no extra fields):
   calendar    – { "title": str, "proposed_datetime": str|null, "location": str|null, "notes": str|null }
   food        – { "description": str, "meal_type": "breakfast"|"lunch"|"dinner"|"snack"|null, "logged_at": str|null, "calories": float|null, "protein_g": float|null, "carbs_g": float|null, "fat_g": float|null }  (estimate calories and macros from the description; approximate is fine)
   exercise    – { "activity": str, "duration_min": float|null, "distance_km": float|null, "sets": int|null, "reps": int|null, "intensity": str|null, "calories": float|null, "logged_at": str|null, "notes": str|null }  (extract the fields present; estimate calories burned roughly if you can — approximate is fine)
+  habit       – { "name": str, "cadence": str|null, "target": str|null, "notes": str|null }  (cadence is free text like "daily" or "3x a week"; do not invent one)
+  goal        – { "title": str, "description": str|null, "target": str|null, "target_date": str|null, "notes": str|null }  (target/target_date are free text; if no date is given, target_date is null — do not invent one)
   investment  – { "action_intent": "buy"|"sell"|"note", "ticker": str|null, "amount": float|null, "currency": "SGD" (default), "notes": str|null }
   note        – { "content": str, "tags": [str] }
   journal     – { "content": str, "mood": str|null }
@@ -48,7 +51,14 @@ swimming, cycling, hiking, yoga, pilates, sports, a race — are ALWAYS "exercis
 "5k run", "ran 5k in 28 min", "did legs at the gym", "1h yoga" are exercise.
   - "food" is ONLY for eating or drinking something. Calories EATEN → food; calories BURNED \
 through activity → exercise.
-  - Do not invent a logged_at timestamp. If no explicit date/time is given, set logged_at to null.
+  - A "habit" is a RECURRING intended behaviour ("meditate every morning", "gym 3x a week", \
+"drink 2L of water daily" — cues: every / daily / weekly / each / routine / habit). A one-off \
+thing to do is a "task", NOT a habit.
+  - A "goal" is a desired OUTCOME or target over time, often with a target and/or deadline \
+("save $50k for the BTO downpayment", "reach 100k portfolio by end 2027", "read 24 books this \
+year"). A single action is a "task"; a passing thought or preference is a "note".
+  - Do not invent a logged_at timestamp or a goal target_date. If no explicit date/time is given, \
+set it to null.
 
 Respond ONLY with valid JSON in this exact shape — no extra commentary:
 {
@@ -153,6 +163,23 @@ class ExerciseStructuredJson(BaseModel):
         return v
 
 
+class HabitStructuredJson(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    cadence: Optional[str] = None
+    target: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class GoalStructuredJson(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str
+    description: Optional[str] = None
+    target: Optional[str] = None
+    target_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class InvestmentStructuredJson(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action_intent: Literal["buy", "sell", "note"]
@@ -185,6 +212,8 @@ _ITEM_TYPE_SCHEMAS: dict[str, type[BaseModel]] = {
     "calendar":   CalendarStructuredJson,
     "food":       FoodStructuredJson,
     "exercise":   ExerciseStructuredJson,
+    "habit":      HabitStructuredJson,
+    "goal":       GoalStructuredJson,
     "investment": InvestmentStructuredJson,
     "journal":    JournalStructuredJson,
     "note":       NoteStructuredJson,

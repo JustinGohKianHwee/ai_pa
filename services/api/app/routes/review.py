@@ -11,6 +11,8 @@ from app.routes.calendar import CalendarIntentResponse
 from app.routes.exercise import ExerciseLogResponse
 from app.routes.finance import MoneyEventResponse
 from app.routes.food import FoodLogResponse
+from app.routes.goals import GoalResponse
+from app.routes.habits import HabitResponse
 from app.routes.tasks import TaskResponse
 from app.security import require_user
 from app.services.classifier import _ITEM_TYPE_SCHEMAS
@@ -84,6 +86,18 @@ class ConfirmExerciseResponse(BaseModel):
     """Returned when an exercise-type item is confirmed: the inbox item plus its exercise_log."""
     inbox_item: ReviewedItemResponse
     exercise_log: ExerciseLogResponse
+
+
+class ConfirmHabitResponse(BaseModel):
+    """Returned when a habit-type item is confirmed: the inbox item plus its habit."""
+    inbox_item: ReviewedItemResponse
+    habit: HabitResponse
+
+
+class ConfirmGoalResponse(BaseModel):
+    """Returned when a goal-type item is confirmed: the inbox item plus its goal."""
+    inbox_item: ReviewedItemResponse
+    goal: GoalResponse
 
 
 class EditInboxItemRequest(BaseModel):
@@ -600,6 +614,174 @@ def _confirm_exercise(client: Client, inbox_id: str, item: dict) -> ConfirmExerc
     )
 
 
+def _fetch_habit(client: Client, inbox_id: str) -> Optional[dict]:
+    res = client.table("habits").select("*").eq("inbox_item_id", inbox_id).execute()
+    return res.data[0] if res.data else None
+
+
+def _recheck_habit_confirm(
+    client: Client, inbox_id: str, original: dict
+) -> ConfirmHabitResponse:
+    """Habit counterpart of _recheck_food_confirm (idempotent 200 / 409 / 503)."""
+    try:
+        item = _fetch_item(client, inbox_id)
+        habit = _fetch_habit(client, inbox_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    if item is not None and habit is not None and item["review_status"] == "confirmed":
+        return ConfirmHabitResponse(
+            inbox_item=ReviewedItemResponse(**item), habit=HabitResponse(**habit)
+        )
+
+    if (
+        item is None
+        or item["review_status"] != original["review_status"]
+        or item["updated_at"] != original["updated_at"]
+    ):
+        raise HTTPException(
+            status_code=409, detail="Item was modified concurrently; confirm failed"
+        )
+
+    raise HTTPException(
+        status_code=503, detail="Habit confirmation database operation failed"
+    )
+
+
+def _confirm_habit(client: Client, inbox_id: str, item: dict) -> ConfirmHabitResponse:
+    """Phase 20 atomic confirmation for habit-type items via the confirm_habit_item RPC."""
+    if item["review_status"] == "confirmed":
+        try:
+            existing = _fetch_habit(client, inbox_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database query failed") from exc
+        if existing is not None:
+            return ConfirmHabitResponse(
+                inbox_item=ReviewedItemResponse(**item), habit=HabitResponse(**existing)
+            )
+        raise HTTPException(
+            status_code=409,
+            detail="Item was confirmed before the habits module existed; backfill is not supported.",
+        )
+
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot confirm item with review_status='{item['review_status']}'",
+        )
+
+    err, normalized = _validate_structured_json("habit", item["structured_json"])
+    if err:
+        raise HTTPException(status_code=400, detail=f"structured_json invalid: {err}")
+
+    if not (normalized.get("name") or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="A habit requires a non-empty name before it can be confirmed.",
+        )
+
+    try:
+        result = client.rpc(
+            "confirm_habit_item",
+            {"p_inbox_id": inbox_id, "p_expected_updated_at": item["updated_at"]},
+        ).execute()
+    except Exception:
+        return _recheck_habit_confirm(client, inbox_id, item)
+
+    data = result.data
+    if not data:
+        return _recheck_habit_confirm(client, inbox_id, item)
+
+    return ConfirmHabitResponse(
+        inbox_item=ReviewedItemResponse(**data["inbox_item"]),
+        habit=HabitResponse(**data["habit"]),
+    )
+
+
+def _fetch_goal(client: Client, inbox_id: str) -> Optional[dict]:
+    res = client.table("goals").select("*").eq("inbox_item_id", inbox_id).execute()
+    return res.data[0] if res.data else None
+
+
+def _recheck_goal_confirm(
+    client: Client, inbox_id: str, original: dict
+) -> ConfirmGoalResponse:
+    """Goal counterpart of _recheck_food_confirm (idempotent 200 / 409 / 503)."""
+    try:
+        item = _fetch_item(client, inbox_id)
+        goal = _fetch_goal(client, inbox_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    if item is not None and goal is not None and item["review_status"] == "confirmed":
+        return ConfirmGoalResponse(
+            inbox_item=ReviewedItemResponse(**item), goal=GoalResponse(**goal)
+        )
+
+    if (
+        item is None
+        or item["review_status"] != original["review_status"]
+        or item["updated_at"] != original["updated_at"]
+    ):
+        raise HTTPException(
+            status_code=409, detail="Item was modified concurrently; confirm failed"
+        )
+
+    raise HTTPException(
+        status_code=503, detail="Goal confirmation database operation failed"
+    )
+
+
+def _confirm_goal(client: Client, inbox_id: str, item: dict) -> ConfirmGoalResponse:
+    """Phase 20 atomic confirmation for goal-type items via the confirm_goal_item RPC."""
+    if item["review_status"] == "confirmed":
+        try:
+            existing = _fetch_goal(client, inbox_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database query failed") from exc
+        if existing is not None:
+            return ConfirmGoalResponse(
+                inbox_item=ReviewedItemResponse(**item), goal=GoalResponse(**existing)
+            )
+        raise HTTPException(
+            status_code=409,
+            detail="Item was confirmed before the goals module existed; backfill is not supported.",
+        )
+
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot confirm item with review_status='{item['review_status']}'",
+        )
+
+    err, normalized = _validate_structured_json("goal", item["structured_json"])
+    if err:
+        raise HTTPException(status_code=400, detail=f"structured_json invalid: {err}")
+
+    if not (normalized.get("title") or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="A goal requires a non-empty title before it can be confirmed.",
+        )
+
+    try:
+        result = client.rpc(
+            "confirm_goal_item",
+            {"p_inbox_id": inbox_id, "p_expected_updated_at": item["updated_at"]},
+        ).execute()
+    except Exception:
+        return _recheck_goal_confirm(client, inbox_id, item)
+
+    data = result.data
+    if not data:
+        return _recheck_goal_confirm(client, inbox_id, item)
+
+    return ConfirmGoalResponse(
+        inbox_item=ReviewedItemResponse(**data["inbox_item"]),
+        goal=GoalResponse(**data["goal"]),
+    )
+
+
 @router.patch(
     "/{inbox_id}/confirm",
     dependencies=[Depends(require_user)],
@@ -607,7 +789,7 @@ def _confirm_exercise(client: Client, inbox_id: str, item: dict) -> ConfirmExerc
 )
 def confirm_inbox_item(
     inbox_id: str,
-) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse | ConfirmExerciseResponse:
+) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse | ConfirmExerciseResponse | ConfirmHabitResponse | ConfirmGoalResponse:
     try:
         client = get_supabase_client()
     except SupabaseConfigurationError as exc:
@@ -643,6 +825,13 @@ def confirm_inbox_item(
     # Phase 18: exercise items confirm atomically and create an exercise_log.
     if item["item_type"] == "exercise":
         return _confirm_exercise(client, inbox_id, item)
+
+    # Phase 20: habit and goal items confirm atomically and create their domain records.
+    if item["item_type"] == "habit":
+        return _confirm_habit(client, inbox_id, item)
+
+    if item["item_type"] == "goal":
+        return _confirm_goal(client, inbox_id, item)
 
     # Non-module items keep the Phase 7 status-only confirmation (no domain record).
     if item["review_status"] == "confirmed":
