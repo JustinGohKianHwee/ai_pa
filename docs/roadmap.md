@@ -645,21 +645,96 @@ the food page; the dashboard food tile shows today's calories. Migration `0012` 
 write). **Manual prerequisites:** apply `0012` and create the private `food-photos` bucket.
 376 backend tests pass. (Built by Claude directly — Codex was rate-limited.)
 
-### Phase 18 — Exercise / workouts
-Capture → confirm → `exercise_logs` (type, duration, sets/reps/distance). Dashboard tile.
+### Feature decision register (2026-06-23)
 
-### Phase 19 — Habits & goals
-Recurring habits (streaks) and goals (progress) through the confirmation pipeline; surfaced on
-the dashboard.
+Ten candidate features (proposed via ChatGPT) were evaluated against the personal-OS vision,
+complexity, dependencies, overengineering risk, and future-retrieval quality. Deployment is
+already done (Phase 16), so "defer until after deployment" collapses — the gate now is **before
+vs. after vector memory**. Decisions:
 
-### Phase 20 — Notes / journal
-Free-form notes and journal entries through capture → confirm; searchable list.
+| # | Feature | Decision | Lands in | Why |
+|---|---------|----------|----------|-----|
+| 1 | Daily Life Timeline | **Include soon** | Phase 19 | Read-layer over `memory_events` + domains; cheap, high payoff, proves the event stream before we embed it. |
+| 3 | Decision Journal | **Include soon** | Phase 21 | Clean domain module; decisions are irreplaceable personal data and a top moat. |
+| 6 | Financial Intelligence Layer | **Include soon** | Phase 22 | Highest personal value; derives from existing finance + portfolio + snapshots (+ a manual balances/income input). |
+| 9 | Daily Briefing | **Include soon** (on-demand first) | Phase 24 | The "feels like an assistant" moment; built from structured data. Scheduled delivery waits for an always-on backend. |
+| 10 | Weekly Reflection | **Include soon** | Phase 24 | Same engine as the briefing; derived summary from stored records. |
+| 4 | Goal → Activity Attribution | **Include later** | Phase 25 | Needs goals (Ph20) + finance intel + accumulated data first. Thin structured links now, rich attribution after. |
+| 7 | Energy/Mood/Sleep/Stress | **Include later** (lightweight) | Phase 23 | Reflective check-in, not medical. Correlation payoff needs months of data + the timeline. |
+| 8 | Memory Importance Scoring | **Defer until vector memory** | Phase 27 | Only matters once retrieval exists. Cheap `importance` column can ride along earlier; scoring logic defers. |
+| 5 | Relationship CRM | **Include later / optional** | post-27 | A fine module but off the finance/health/decisions spine; adds surface area for modest moat. |
+| 2 | Life Events Graph | **Reject the graph; revisit as lightweight "threads"** | post-27 | Full graph model + UI is premature overengineering. A simple `thread`/`project` tag on records can ride with attribution later. |
 
-### Phase 21 — Daily & weekly summaries
-Populate `daily_summaries` from confirmed records + snapshots + `memory_events`; a weekly
-rollup; surface on the dashboard/review.
+**Strategic answers:** Deploy first — **already done**. Build daily snapshots before vector
+memory — **already done (14.5)**; keep accumulating. Build the **timeline before** vector memory
+(it's the human-readable substrate and a data-quality check). Build **goals before** vector
+memory; **attribution** can be a thin structured link before and richer after. **Minimum memory
+foundation before pgvector:** `owner_id` + append-only `memory_events` (done in 15b) **plus** the
+timeline (Ph19), the summaries engine (Ph24), an `importance`/`source_ref` on events, and the
+security review (Ph26) — embed summaries + high-importance events, never every raw row. **Highest
+moat:** the accumulated, review-curated dataset itself, led by Decision Journal, Financial
+Intelligence, and the Timeline. **Tempting but premature:** the Life Events Graph, goal
+attribution before goals+data, importance scoring before retrieval exists, and vector memory
+before timeline + summaries.
 
-### Phase 22 — Security review & hardening (risk register)
+---
+
+### Phase 18 — Exercise / workouts ✓ implementation complete (migration/manual verification pending)
+Capture → confirm → `exercise_logs` (activity, duration_min, distance_km, sets/reps, intensity,
+calories, logged_at, notes) via the standard module pattern: migration `0013_exercise_logs.sql`
+(+ `confirm_exercise_item` RPC mirroring 0012, with the 15b memory-event write + RLS lockdown +
+default-filled `owner_id`), classifier `exercise` type, `GET /exercise_logs` (+`?date=today`,
+totals), `/exercise` page, inbox review read-out, and a dashboard tile. Completes the
+daily-logging trio (tasks · food · exercise). 394 backend tests pass; frontend lint/tsc/build
+clean. **Manual prerequisite:** apply `0013` (replace `<OWNER_USER_ID>` first). Plan in
+`docs/phase-18-plan.md`. (Built by Claude directly — Codex rate-limited until 2026-06-26.)
+
+### Phase 19 — Daily Life Timeline (read-only) — *feature 1*
+A single chronological, filterable view across tasks, money events, food, calendar intents,
+exercise, portfolio snapshots, and `memory_events`. **Read-only aggregation — no new domain
+writes, no pipeline change.** Built primarily over the append-only `memory_events` log (already
+populated by the 15b confirm RPCs), joined to domain rows for detail. Adds query indexes only.
+This is the human-readable substrate the later assistant will cite, and it surfaces data-quality
+gaps before anything gets embedded.
+
+### Phase 20 — Habits & goals — *enables feature 4*
+Recurring habits (streaks) and goals (target + progress) through capture → confirm. `goals` and
+`habits` tables + confirm RPCs (memory-event write preserved). Goals are the anchor for the
+later financial-intelligence housing-fund and attribution work.
+
+### Phase 21 — Decision Journal — *feature 3*
+New domain module: `decisions` (decision, reason, options considered, expected outcome,
+confidence, optional related goal, status) via capture → confirm. A later `outcome_review`
+(structured follow-up) closes the loop. High long-term moat; no automatic actions.
+
+### Phase 22 — Financial Intelligence Layer — *feature 6*
+Derived metrics over existing finance + portfolio + snapshots: net worth, savings rate,
+investment rate, cash runway, housing-fund progress, and a **deterministic** monthly explanation
+(AI phrasing optional, always derived from stored numbers). Requires a small **reviewed** manual
+input for balances/income (assets, liabilities, salary) — still through an explicit confirm step,
+never auto-pulled. No cross-currency summing without an approved FX source.
+
+### Phase 23 — Notes / journal + lifestyle check-ins — *existing journal + feature 7 (lightweight)*
+Free-form notes/journal (capture → confirm, searchable) **plus** an optional structured daily
+check-in (energy, mood, sleep, stress, activity) as a reflective log — explicitly **not** a
+medical/diagnostic tool. Structured rows so later correlation is possible; no diagnosis, no
+auto-advice.
+
+### Phase 24 — Daily briefing & weekly reflection — *features 9 + 10; the summaries engine*
+Populate `daily_summaries` from confirmed records + snapshots + `memory_events`; generate an
+on-demand **daily briefing** (tasks due, calendar, spend, portfolio delta, pending inbox,
+suggested focus, warnings) and a **weekly reflection** (wins, concerns, trends, progress).
+Summaries are derived from structured data, not free-form AI guesses. Add a nullable
+`importance` to `memory_events` here as retrieval prep. **Scheduled** delivery (Telegram push at
+~7am) waits for an always-on backend; on-demand works now.
+
+### Phase 25 — Goal → activity attribution — *feature 4*
+Now that goals, finance intelligence, decisions, and real data exist: link records/metrics to
+goals and show **progress toward life goals** on the dashboard (e.g. housing-fund goal ←
+investments + savings + BTO milestones). Start with thin, explicit structured links; richer
+attribution can follow once vector memory lands.
+
+### Phase 26 — Security review & hardening (risk register)
 Before embedding all life data and giving an LLM access, do a formal review: enumerate every
 risk with **severity (High / Medium / Low)** and **likelihood**, plus mitigation + owner.
 Cover at least: auth/session integrity, RLS + service-role blast radius, secret storage
@@ -669,10 +744,19 @@ prompt-injection in the AI layer, and PII exposure. **Output:** a living `docs/s
 risk register, with all High-severity items fixed before proceeding. (Security is revisited
 continuously; this is the dedicated gate.)
 
-### Phase 23 — Vector memory
-pgvector + `memory_chunks`; embed `memory_events`/summaries; `POST /memory/search` + a
-dashboard search bar. Built only now, on real accumulated data.
+### Phase 27 — Vector memory — *folds in feature 8*
+pgvector + `memory_chunks`; embed **summaries + high-importance `memory_events`** (not every
+raw row); `POST /memory/search` + a dashboard search bar. Memory **importance scoring** (feature
+8) is implemented here, where retrieval exists to make it meaningful. Built only now, on real
+accumulated data.
 
-### Phase 24 — LLM assistant / recommendations
+### Phase 28 — LLM assistant / recommendations
 A retrieval-grounded assistant over your memory — ask questions across months of data, get
-recommendations. The payoff, and the most security-sensitive surface (hence the Phase 22 gate).
+recommendations grounded in cited records. The payoff, and the most security-sensitive surface
+(hence the Phase 26 gate). Recommendations are advisory; any action still passes through review.
+
+### Deferred / optional (revisit after Phase 27)
+- **Relationship CRM** (feature 5) — contacts, last-contacted, follow-ups. A clean optional
+  module; build if the need is felt, after the core spine.
+- **Life Events "threads"** (feature 2, de-scoped) — a lightweight `thread`/`project` tag on
+  records (BTO, ByteDance) surfaced in the timeline. Explicitly **not** a graph DB.
