@@ -50,7 +50,7 @@ alter table inbox_items add constraint inbox_items_item_type_check
 create table if not exists decisions (
     id                 uuid primary key default gen_random_uuid(),
     inbox_item_id      uuid not null unique references inbox_items (id),
-    owner_id           text not null default '<OWNER_USER_ID>',
+    owner_id           text not null default 'd64140ca-fad6-4444-84f6-96b976d5f784',
     decision           text not null,
     reason             text,
     options_considered text,

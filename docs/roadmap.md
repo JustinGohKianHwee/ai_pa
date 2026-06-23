@@ -723,7 +723,7 @@ backend tests pass; frontend lint/tsc/build clean. **Manual prerequisite:** appl
 `<OWNER_USER_ID>`). **Out of scope (deferred):** check-ins/streaks, recurrence, reminders,
 attribution, progress intelligence.
 
-### Phase 21 — Decision Journal ✓ implementation complete (migration/manual verification pending) — *feature 3*
+### Phase 21 — Decision Journal — implementation reviewed, merged for manual verification (pending) — *feature 3*
 New domain module via capture → confirm, migration `0016_decisions.sql`. `decisions` (decision
 [required], reason, options_considered, expected_outcome, confidence [user's 0–1], category,
 decided_at [verbatim text], status, notes) with a **minimal status toggle**
