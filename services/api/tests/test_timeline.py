@@ -119,6 +119,14 @@ def test_invalid_domain_returns_422():
     assert res.status_code == 422
 
 
+def test_habit_and_goal_are_accepted_domains():
+    cm, q = _chain_mock([_row(1, domain="habit")])
+    with patch("app.routes.timeline.get_supabase_client", return_value=cm):
+        res = client.get("/timeline?domains=habit,goal", headers=_auth())
+    assert res.status_code == 200
+    q.in_.assert_called_once_with("domain", ["habit", "goal"])
+
+
 def test_date_filters_applied():
     cm, q = _chain_mock([_row(1)])
     with patch("app.routes.timeline.get_supabase_client", return_value=cm):

@@ -27,7 +27,9 @@ from app.security import require_user
 router = APIRouter(tags=["timeline"])
 
 # Domains the timeline understands (matches memory_events.domain written by the RPCs).
-ALLOWED_DOMAINS = {"task", "money", "food", "calendar", "exercise", "portfolio_snapshot"}
+ALLOWED_DOMAINS = {
+    "task", "money", "food", "calendar", "exercise", "habit", "goal", "portfolio_snapshot",
+}
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200

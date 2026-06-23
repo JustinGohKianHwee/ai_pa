@@ -7,6 +7,8 @@ import {
   Wallet,
   Apple,
   Dumbbell,
+  Repeat,
+  Target,
   Calendar,
   PieChart,
   Circle,
@@ -83,6 +85,26 @@ const DOMAIN_META: Record<string, DomainMeta> = {
       ]);
     },
     href: () => "/exercise",
+  },
+  habit: {
+    label: "Habit",
+    icon: Repeat,
+    tone: "info",
+    title: (p) => str(p.name) ?? "Habit",
+    summary: (p) =>
+      join([str(p.cadence), str(p.target) ? `target ${str(p.target)}` : null]),
+    href: () => "/habits",
+  },
+  goal: {
+    label: "Goal",
+    icon: Target,
+    tone: "accent",
+    title: (p) => str(p.title) ?? "Goal",
+    // status is frozen at confirmation time (always 'active'), so omit it to avoid
+    // showing a stale status after a later toggle.
+    summary: (p) =>
+      join([str(p.target), str(p.target_date) ? `by ${str(p.target_date)}` : null]),
+    href: () => "/goals",
   },
   calendar: {
     label: "Calendar",
