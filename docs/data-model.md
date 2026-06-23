@@ -275,6 +275,34 @@ conflict detection, and a more deliberate confirmation UX — deferred to a late
 
 ---
 
+### `exercise_logs` — Phase 18 (implemented, `supabase/migrations/0013_exercise_logs.sql`)
+
+Confirmed exercise/workout records. Exactly one row per source `inbox_item` (UNIQUE
+`inbox_item_id`), written only by the `confirm_exercise_item` RPC in the same transaction that
+confirms the item and appends one `memory_events` row (Phase 15b contract). Immutable in Phase 18
+(no edit/delete) — hence no `updated_at`.
+
+**Columns (actual migration):**
+- `id` — UUID primary key (`gen_random_uuid()`)
+- `inbox_item_id` — required FK to `inbox_items`, **UNIQUE** (idempotency backstop)
+- `owner_id` — text, **not null**, default-filled single-owner (matches 0010/0011)
+- `activity` — what was done, **not null** (e.g. "running", "gym - chest")
+- `duration_min`, `distance_km`, `calories` — nullable `numeric` (AI-extracted/estimated,
+  user-editable in review; finite & non-negative validators on the classifier schema)
+- `sets`, `reps` — nullable `integer`
+- `intensity` — nullable text, free-form (e.g. "easy"/"moderate"/"hard") — not constrained
+- `logged_at` — **text**, nullable. The AI's free-text date/time verbatim. **Not parsed.** Not
+  used for date filtering — display only (same pattern as `food_logs.logged_at`).
+- `notes` — nullable text
+- `created_at` — not null, default `now()`
+
+**"Today" filtering contract:** identical to `food_logs` — `GET /exercise_logs?date=today`
+filters on `created_at` within the user's `USER_TIMEZONE` calendar day; `logged_at` is display
+only. `GET /exercise_logs` also returns `totals` (summed `duration_min`, `distance_km`,
+`calories`). RLS is deny-by-default; only the service-role backend reads/writes.
+
+---
+
 ### Portfolio data — Phase 14 (external, read-only)
 
 Phase 14 does not add an `investment_notes` or portfolio-positions table. Current positions,

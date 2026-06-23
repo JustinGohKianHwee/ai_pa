@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 CLASSIFICATION_MODEL = "gpt-4o-mini"
 
 ItemType = Literal[
-    "task", "finance", "calendar", "food", "investment", "note", "journal", "unknown"
+    "task", "finance", "calendar", "food", "exercise", "investment", "note", "journal", "unknown"
 ]
 
 SYSTEM_PROMPT = """\
@@ -36,6 +36,7 @@ Allowed types and the EXACT fields to extract for each (no extra fields):
   finance     – { "amount": float, "currency": "SGD" (default), "direction": "expense"|"income", "merchant": str|null, "category": str|null, "occurred_at": str|null, "notes": str|null }
   calendar    – { "title": str, "proposed_datetime": str|null, "location": str|null, "notes": str|null }
   food        – { "description": str, "meal_type": "breakfast"|"lunch"|"dinner"|"snack"|null, "logged_at": str|null, "calories": float|null, "protein_g": float|null, "carbs_g": float|null, "fat_g": float|null }  (estimate calories and macros from the description; approximate is fine)
+  exercise    – { "activity": str, "duration_min": float|null, "distance_km": float|null, "sets": int|null, "reps": int|null, "intensity": str|null, "calories": float|null, "logged_at": str|null, "notes": str|null }  (extract the fields present; estimate calories burned roughly if you can — approximate is fine)
   investment  – { "action_intent": "buy"|"sell"|"note", "ticker": str|null, "amount": float|null, "currency": "SGD" (default), "notes": str|null }
   note        – { "content": str, "tags": [str] }
   journal     – { "content": str, "mood": str|null }
@@ -113,6 +114,37 @@ class FoodStructuredJson(BaseModel):
         return v
 
 
+class ExerciseStructuredJson(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    activity: str
+    duration_min: Optional[float] = None
+    distance_km: Optional[float] = None
+    sets: Optional[int] = None
+    reps: Optional[int] = None
+    intensity: Optional[str] = None
+    calories: Optional[float] = None
+    logged_at: Optional[str] = None
+    notes: Optional[str] = None
+
+    @field_validator("duration_min", "distance_km", "calories")
+    @classmethod
+    def metric_finite_nonneg(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return v
+        if not math.isfinite(v) or v < 0:
+            raise ValueError("exercise metrics must be finite and non-negative")
+        return v
+
+    @field_validator("sets", "reps")
+    @classmethod
+    def count_nonneg(cls, v: Optional[int]) -> Optional[int]:
+        if v is None:
+            return v
+        if v < 0:
+            raise ValueError("sets/reps must be non-negative")
+        return v
+
+
 class InvestmentStructuredJson(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action_intent: Literal["buy", "sell", "note"]
@@ -144,6 +176,7 @@ _ITEM_TYPE_SCHEMAS: dict[str, type[BaseModel]] = {
     "finance":    FinanceStructuredJson,
     "calendar":   CalendarStructuredJson,
     "food":       FoodStructuredJson,
+    "exercise":   ExerciseStructuredJson,
     "investment": InvestmentStructuredJson,
     "journal":    JournalStructuredJson,
     "note":       NoteStructuredJson,

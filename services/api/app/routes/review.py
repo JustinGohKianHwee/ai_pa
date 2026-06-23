@@ -8,6 +8,7 @@ from supabase import Client
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
 from app.routes.calendar import CalendarIntentResponse
+from app.routes.exercise import ExerciseLogResponse
 from app.routes.finance import MoneyEventResponse
 from app.routes.food import FoodLogResponse
 from app.routes.tasks import TaskResponse
@@ -77,6 +78,12 @@ class ConfirmCalendarResponse(BaseModel):
     """Returned when a calendar-type item is confirmed: the inbox item plus its calendar_intent."""
     inbox_item: ReviewedItemResponse
     calendar_intent: CalendarIntentResponse
+
+
+class ConfirmExerciseResponse(BaseModel):
+    """Returned when an exercise-type item is confirmed: the inbox item plus its exercise_log."""
+    inbox_item: ReviewedItemResponse
+    exercise_log: ExerciseLogResponse
 
 
 class EditInboxItemRequest(BaseModel):
@@ -495,6 +502,104 @@ def _confirm_calendar(client: Client, inbox_id: str, item: dict) -> ConfirmCalen
     )
 
 
+def _fetch_exercise_log(client: Client, inbox_id: str) -> Optional[dict]:
+    res = client.table("exercise_logs").select("*").eq("inbox_item_id", inbox_id).execute()
+    return res.data[0] if res.data else None
+
+
+def _recheck_exercise_confirm(
+    client: Client, inbox_id: str, original: dict
+) -> ConfirmExerciseResponse:
+    """
+    Exercise counterpart of _recheck_food_confirm. After a confirm_exercise_item RPC error
+    (or empty result), re-read state and compare to the validated snapshot:
+      1. confirmed + exercise_log exists → idempotent success (200)
+      2. state or updated_at changed      → concurrency conflict (409)
+      3. unchanged pending, no log         → the RPC failed without committing (503)
+    """
+    try:
+        item = _fetch_item(client, inbox_id)
+        log = _fetch_exercise_log(client, inbox_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    if item is not None and log is not None and item["review_status"] == "confirmed":
+        return ConfirmExerciseResponse(
+            inbox_item=ReviewedItemResponse(**item),
+            exercise_log=ExerciseLogResponse(**log),
+        )
+
+    if (
+        item is None
+        or item["review_status"] != original["review_status"]
+        or item["updated_at"] != original["updated_at"]
+    ):
+        raise HTTPException(
+            status_code=409, detail="Item was modified concurrently; confirm failed"
+        )
+
+    raise HTTPException(
+        status_code=503, detail="Exercise confirmation database operation failed"
+    )
+
+
+def _confirm_exercise(client: Client, inbox_id: str, item: dict) -> ConfirmExerciseResponse:
+    """
+    Phase 18 atomic confirmation for exercise-type items. Delegates the exercise_log insert +
+    inbox confirmation to the confirm_exercise_item RPC so both happen in one transaction.
+    Never performs a separate insert + update from Python.
+    """
+    # Idempotency: already confirmed.
+    if item["review_status"] == "confirmed":
+        try:
+            existing = _fetch_exercise_log(client, inbox_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database query failed") from exc
+        if existing is not None:
+            return ConfirmExerciseResponse(
+                inbox_item=ReviewedItemResponse(**item),
+                exercise_log=ExerciseLogResponse(**existing),
+            )
+        # Confirmed before the exercise module existed → do NOT backfill.
+        raise HTTPException(
+            status_code=409,
+            detail="Item was confirmed before the exercise module existed; backfill is not supported.",
+        )
+
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot confirm item with review_status='{item['review_status']}'",
+        )
+
+    err, normalized = _validate_structured_json("exercise", item["structured_json"])
+    if err:
+        raise HTTPException(status_code=400, detail=f"structured_json invalid: {err}")
+
+    if not (normalized.get("activity") or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="An exercise log requires a non-empty activity before it can be confirmed.",
+        )
+
+    try:
+        result = client.rpc(
+            "confirm_exercise_item",
+            {"p_inbox_id": inbox_id, "p_expected_updated_at": item["updated_at"]},
+        ).execute()
+    except Exception:
+        return _recheck_exercise_confirm(client, inbox_id, item)
+
+    data = result.data
+    if not data:
+        return _recheck_exercise_confirm(client, inbox_id, item)
+
+    return ConfirmExerciseResponse(
+        inbox_item=ReviewedItemResponse(**data["inbox_item"]),
+        exercise_log=ExerciseLogResponse(**data["exercise_log"]),
+    )
+
+
 @router.patch(
     "/{inbox_id}/confirm",
     dependencies=[Depends(require_user)],
@@ -502,7 +607,7 @@ def _confirm_calendar(client: Client, inbox_id: str, item: dict) -> ConfirmCalen
 )
 def confirm_inbox_item(
     inbox_id: str,
-) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse:
+) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse | ConfirmExerciseResponse:
     try:
         client = get_supabase_client()
     except SupabaseConfigurationError as exc:
@@ -534,6 +639,10 @@ def confirm_inbox_item(
     # Phase 12: calendar items confirm atomically and create a calendar_intent.
     if item["item_type"] == "calendar":
         return _confirm_calendar(client, inbox_id, item)
+
+    # Phase 18: exercise items confirm atomically and create an exercise_log.
+    if item["item_type"] == "exercise":
+        return _confirm_exercise(client, inbox_id, item)
 
     # Non-module items keep the Phase 7 status-only confirmation (no domain record).
     if item["review_status"] == "confirmed":

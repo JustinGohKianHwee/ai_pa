@@ -11,6 +11,7 @@ const VALID_ITEM_TYPES = [
   "finance",
   "calendar",
   "food",
+  "exercise",
   "investment",
   "note",
   "journal",
@@ -64,6 +65,20 @@ export function InboxCard({ item }: { item: InboxItem }) {
         ]
           .filter(Boolean)
           .join(" · ")
+      : null;
+
+  const exerciseSummary =
+    item.item_type === "exercise"
+      ? [
+          typeof sj.duration_min === "number" ? `${Math.round(sj.duration_min)} min` : null,
+          typeof sj.distance_km === "number" ? `${sj.distance_km} km` : null,
+          typeof sj.sets === "number" && typeof sj.reps === "number"
+            ? `${sj.sets} × ${sj.reps}`
+            : null,
+          calories !== null ? `${Math.round(calories)} kcal` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || null
       : null;
 
   function handleConfirm() {
@@ -167,6 +182,10 @@ export function InboxCard({ item }: { item: InboxItem }) {
       ) : null}
 
       {foodNutrition ? <p className="numeric text-sm text-muted">{foodNutrition}</p> : null}
+
+      {exerciseSummary ? (
+        <p className="numeric text-sm text-muted">{exerciseSummary}</p>
+      ) : null}
 
       {needsManual ? (
         <p className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-warning">
