@@ -689,7 +689,7 @@ daily-logging trio (tasks · food · exercise). 394 backend tests pass; frontend
 clean. **Manual prerequisite:** apply `0013` (replace `<OWNER_USER_ID>` first). Plan in
 `docs/phase-18-plan.md`. (Built by Claude directly — Codex rate-limited until 2026-06-26.)
 
-### Phase 19 — Daily Life Timeline (read-only) — implementation reviewed, merged for manual verification — *feature 1*
+### Phase 19 — Daily Life Timeline (read-only) ✓ complete — *feature 1*
 A single chronological, filterable view across tasks, money events, food, calendar intents,
 exercise, and portfolio snapshots. **Read-only aggregation — no new domain writes, no pipeline
 change, no AI, no migration.** Read entirely from the append-only `memory_events` log (populated
@@ -702,9 +702,10 @@ formatting, "Load older"), nav-rail entry, and `fmtDayHeading`/`fmtTime` helpers
 existing `idx_memory_events_owner_occurred` index — no new index added. **Scope:** confirmations
 + snapshots only, **post-15b** (no backfill); captures/pending/rejected are not shown. This is the
 first read consumer of `memory_events` and the substrate the later assistant will cite. 415
-backend tests pass; frontend lint/tsc/build clean. **Status:** implementation reviewed (read-only
-guard, keyset pagination, defensive formatting verified), merged for manual verification — not yet
-marked fully complete.
+backend tests pass; frontend lint/tsc/build clean. **Status:** ✓ complete — implementation
+reviewed (read-only guard, keyset pagination, defensive formatting), merged, manual verification
+passed. *(Known limitation: only confirmations/snapshots from Phase 15b onward appear; pre-15b
+records are not backfilled.)*
 
 ### Phase 20 — Habits & goals — *enables feature 4*
 Recurring habits (streaks) and goals (target + progress) through capture → confirm. `goals` and
