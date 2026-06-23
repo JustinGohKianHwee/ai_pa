@@ -52,6 +52,20 @@ export function InboxCard({ item }: { item: InboxItem }) {
     item.body || item.capture?.transcript || item.capture?.raw_text || "(no text)";
   const hasStructuredData = Object.keys(item.structured_json).length > 0;
 
+  const sj = item.structured_json as Record<string, unknown>;
+  const calories = typeof sj.calories === "number" ? sj.calories : null;
+  const foodNutrition =
+    item.item_type === "food" && calories !== null
+      ? [
+          `${Math.round(calories)} kcal`,
+          typeof sj.protein_g === "number" ? `P ${Math.round(sj.protein_g)}` : null,
+          typeof sj.carbs_g === "number" ? `C ${Math.round(sj.carbs_g)}` : null,
+          typeof sj.fat_g === "number" ? `F ${Math.round(sj.fat_g)}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : null;
+
   function handleConfirm() {
     setActionError(null);
     startTransition(async () => {
@@ -142,6 +156,17 @@ export function InboxCard({ item }: { item: InboxItem }) {
           <Badge tone={needsManual ? "warning" : "info"}>{item.review_status}</Badge>
         </div>
       </div>
+
+      {item.image_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={item.image_url}
+          alt={item.title ?? "Food photo"}
+          className="max-h-56 w-full rounded-lg border border-border object-cover"
+        />
+      ) : null}
+
+      {foodNutrition ? <p className="numeric text-sm text-muted">{foodNutrition}</p> : null}
 
       {needsManual ? (
         <p className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-warning">

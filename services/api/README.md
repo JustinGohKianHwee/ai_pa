@@ -12,9 +12,11 @@ migration. See **Read-only enforcement** below.
 
 Phase 13 (✓ complete): daily review — `GET /daily_review`. Phase 12 (✓ complete): calendar
 intents. Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription.
-Migrations `0001`–`0011` exist; migrations `0009`–`0011` require manual application as
+Migrations `0001`–`0012` exist; migrations `0009`–`0012` require manual application as
 applicable. Replace `<OWNER_USER_ID>` in both `0010_owner_id.sql` and
-`0011_memory_events.sql` with the Supabase owner UUID before applying them. 365 tests pass.
+`0011_memory_events.sql` with the Supabase owner UUID before applying them. Phase 17 also
+requires a **private Supabase Storage bucket named `food-photos`** (food photos; signed-URL
+reads only). 376 tests pass.
 
 ## Planned stack
 - Python 3.11+
@@ -310,3 +312,13 @@ Expected response:
   refreshes retain one `snapshot_created` event per canonical snapshot. No application routes,
   UI, summaries, embedding queue, embeddings, or vector store are added. Replace the owner UUID
   placeholder before manual migration application.
+- Phase 17: Food calories/macros + photo input, migration `0012_food_nutrition.sql`
+  (`food_logs` += calories/protein_g/carbs_g/fat_g/image_path; `capture_events.image_path`;
+  `confirm_food_item` extended to persist nutrition + image, preserving the 15b memory event).
+  `app/services/food_vision.py` (gpt-4o-mini image estimate), `app/services/storage.py`
+  (private `food-photos` bucket upload + signed URLs), a Telegram photo capture path in
+  `telegram.py`, and an extended text classifier so text food also gets estimates. Non-food
+  photos → `needs_manual` (no fabricated meal). `GET /food_logs` returns nutrition + signed
+  `image_url` + daily `totals`; the inbox exposes a signed `image_url` for food items.
+  Manual setup: apply `0012` and create the `food-photos` bucket. Photos are sent to OpenAI for
+  analysis (privacy note for the Phase 22 review).

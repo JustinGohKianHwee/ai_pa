@@ -220,6 +220,12 @@ Immutable in Phase 11 (no edit/delete) — hence no `updated_at`.
 - `logged_at` — **text**, nullable. The AI's free-text date/time verbatim (e.g. "lunchtime",
   "this morning"). **Not parsed.** Not used for date filtering — display only.
 - `created_at` — not null, default `now()`
+- **Phase 17 additions** (`supabase/migrations/0012_food_nutrition.sql`): `calories`,
+  `protein_g`, `carbs_g`, `fat_g` (nullable `numeric`, AI-estimated, user-editable in review)
+  and `image_path` (nullable text — object path in the private `food-photos` Storage bucket).
+  Photo captures set `capture_events.image_path` (the raw photo, parallel to `audio_file_id`);
+  `confirm_food_item` copies it onto the food log. The frontend receives short-lived signed URLs,
+  never the raw path. Estimates apply to both photo and text food captures.
 
 **"Today" filtering contract:**
 `GET /food_logs?date=today` returns logs whose `created_at` falls within the user's local

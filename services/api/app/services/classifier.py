@@ -35,7 +35,7 @@ Allowed types and the EXACT fields to extract for each (no extra fields):
   task        – { "title": str|null, "due_date": str|null, "urgency": "today"|"this_week"|"someday"|null, "notes": str|null }
   finance     – { "amount": float, "currency": "SGD" (default), "direction": "expense"|"income", "merchant": str|null, "category": str|null, "occurred_at": str|null, "notes": str|null }
   calendar    – { "title": str, "proposed_datetime": str|null, "location": str|null, "notes": str|null }
-  food        – { "description": str, "meal_type": "breakfast"|"lunch"|"dinner"|"snack"|null, "logged_at": str|null }
+  food        – { "description": str, "meal_type": "breakfast"|"lunch"|"dinner"|"snack"|null, "logged_at": str|null, "calories": float|null, "protein_g": float|null, "carbs_g": float|null, "fat_g": float|null }  (estimate calories and macros from the description; approximate is fine)
   investment  – { "action_intent": "buy"|"sell"|"note", "ticker": str|null, "amount": float|null, "currency": "SGD" (default), "notes": str|null }
   note        – { "content": str, "tags": [str] }
   journal     – { "content": str, "mood": str|null }
@@ -98,6 +98,19 @@ class FoodStructuredJson(BaseModel):
     description: str
     meal_type: Optional[Literal["breakfast", "lunch", "dinner", "snack"]] = None
     logged_at: Optional[str] = None
+    calories: Optional[float] = None
+    protein_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+
+    @field_validator("calories", "protein_g", "carbs_g", "fat_g")
+    @classmethod
+    def nutrition_finite_nonneg(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return v
+        if not math.isfinite(v) or v < 0:
+            raise ValueError("nutrition values must be finite and non-negative")
+        return v
 
 
 class InvestmentStructuredJson(BaseModel):

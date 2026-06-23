@@ -32,6 +32,7 @@ from pydantic import BaseModel
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
 from app.security import require_user
+from app.services.storage import signed_food_photo_url
 
 router = APIRouter(tags=["food"])
 
@@ -42,12 +43,25 @@ class FoodLogResponse(BaseModel):
     description: str
     meal_type: Optional[str] = None
     logged_at: Optional[str] = None
+    calories: Optional[float] = None
+    protein_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    image_url: Optional[str] = None
     created_at: str
+
+
+class FoodTotals(BaseModel):
+    calories: float = 0.0
+    protein_g: float = 0.0
+    carbs_g: float = 0.0
+    fat_g: float = 0.0
 
 
 class FoodLogsListResponse(BaseModel):
     items: list[FoodLogResponse]
     total: int
+    totals: FoodTotals
 
 
 @router.get("/food_logs", dependencies=[Depends(require_user)])
@@ -92,5 +106,29 @@ def list_food_logs(date: Optional[str] = None) -> FoodLogsListResponse:
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Database query failed") from exc
 
-    items = [FoodLogResponse(**row) for row in result.data]
-    return FoodLogsListResponse(items=items, total=len(items))
+    items: list[FoodLogResponse] = []
+    totals = {"calories": 0.0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0}
+    for row in result.data:
+        items.append(
+            FoodLogResponse(
+                id=row["id"],
+                inbox_item_id=row["inbox_item_id"],
+                description=row["description"],
+                meal_type=row.get("meal_type"),
+                logged_at=row.get("logged_at"),
+                calories=row.get("calories"),
+                protein_g=row.get("protein_g"),
+                carbs_g=row.get("carbs_g"),
+                fat_g=row.get("fat_g"),
+                image_url=signed_food_photo_url(row.get("image_path")),
+                created_at=row["created_at"],
+            )
+        )
+        for key in totals:
+            value = row.get(key)
+            if value is not None:
+                totals[key] += float(value)
+
+    return FoodLogsListResponse(
+        items=items, total=len(items), totals=FoodTotals(**totals)
+    )

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
 from app.security import require_user
+from app.services.storage import signed_food_photo_url
 
 router = APIRouter()
 
@@ -29,6 +30,7 @@ class InboxItemResponse(BaseModel):
     updated_at: str
     reviewed_at: Optional[str] = None
     capture: Optional[CaptureContext] = None
+    image_url: Optional[str] = None
 
 
 class InboxResponse(BaseModel):
@@ -46,7 +48,7 @@ def get_inbox() -> InboxResponse:
     try:
         result = (
             client.table("inbox_items")
-            .select("*, capture_events(source, raw_text, transcript, processing_status)")
+            .select("*, capture_events(source, raw_text, transcript, processing_status, image_path)")
             .in_("review_status", ["pending", "needs_manual_classification"])
             .order("created_at", desc=True)
             .execute()
@@ -58,6 +60,9 @@ def get_inbox() -> InboxResponse:
     for row in result.data:
         capture_data = row.pop("capture_events", None)
         capture = CaptureContext(**capture_data) if capture_data else None
-        items.append(InboxItemResponse(**row, capture=capture))
+        image_url = None
+        if capture_data and row.get("item_type") == "food":
+            image_url = signed_food_photo_url(capture_data.get("image_path"))
+        items.append(InboxItemResponse(**row, capture=capture, image_url=image_url))
 
     return InboxResponse(items=items, total=len(items))

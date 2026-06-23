@@ -18,6 +18,7 @@ export interface InboxItem {
   updated_at: string;
   reviewed_at: string | null;
   capture: CaptureContext | null;
+  image_url: string | null;
 }
 
 export interface InboxResponse {

@@ -81,7 +81,10 @@ Portfolio is read-only across Tiger + IBKR with daily normalized snapshots (Phas
 **For security, the Tiger broker credential is kept local-only** (never deployed to the cloud
 host) — so live portfolio fetch and new snapshots run locally, while the cloud shows stored
 snapshot history/value from the database; IBKR is local-only (its gateway can't run on a PaaS).
-Migrations `0001`–`0011` applied. 365 backend tests pass.
+Food logging supports **photo input** (Phase 17): a food photo to the Telegram bot is estimated
+by a vision model (calories + macros), reviewed/corrected, then stored; text food gets estimates
+too. Photos live in a private Supabase Storage bucket. Migrations `0001`–`0012` applied. 376
+backend tests pass.
 
 Milestones: **Phase 6** — classification end-to-end. **Phase 7** — review layer. **Phase 8** —
 MVP (tasks + atomic confirm). **Phase 9** — finance expenses. **Phase 10** — voice transcription.
@@ -89,7 +92,7 @@ MVP (tasks + atomic confirm). **Phase 9** — finance expenses. **Phase 10** —
 **Phase 14** — read-only portfolio. **Phase 14.5** — normalized snapshots.
 **Phase 15a** — authentication + RLS. **Phase 15b** — memory-ready foundation
 (`owner_id` + `memory_events`). **Phase 15c** — UI revamp (dark-first data-cockpit).
-**Phase 16** — production deployment.
+**Phase 16** — production deployment. **Phase 17** — food calories/macros + photo input.
 
 ---
 

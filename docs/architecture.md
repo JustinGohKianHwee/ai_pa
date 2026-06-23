@@ -47,15 +47,18 @@ passing through steps 1–4.
 **What it is:** The entry point for all data into the system.
 
 **Capture surfaces (current and planned):**
-- Telegram bot — text messages and voice notes (Phase 4+)
+- Telegram bot — text messages, voice notes (Phase 4/10+), and **food photos** (Phase 17+)
 - Dashboard web form — typed input (Phase 5+)
-- Voice notes via Telegram (Phase 10+)
 - Future: email, iOS Shortcuts, documents
 
 **What happens here:**
 - The raw input arrives at a backend webhook endpoint
 - It is written immediately to `capture_events` before any AI work
 - If the input is a voice note, it is passed to the transcription layer
+- If the input is a **photo**, it is stored in a private Storage bucket and passed to the
+  food **vision** layer (`gpt-4o-mini`), which estimates the dish + calories/macros; non-food
+  photos route to manual review. The estimate populates the food inbox item and is editable in
+  review like any other capture
 - The raw text is then passed to the classification layer
 - Raw source fields are never modified; transcript, processing status, and safe metadata
   may be updated by later pipeline steps

@@ -15,12 +15,21 @@ from app.services.classifier import (
     classify_text,
 )
 from app.services.transcriber import TRANSCRIPTION_MODEL, TranscriptionError, transcribe_audio
+from app.services.food_vision import (
+    FOOD_VISION_MODEL,
+    FoodVisionError,
+    FoodVisionValidationError,
+    classify_food_image,
+)
+from app.services.storage import upload_food_photo
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 logger = logging.getLogger(__name__)
 
 # Whisper API hard limit — not configurable.
 MAX_AUDIO_BYTES = 25 * 1024 * 1024
+# Generous cap for food photos (Telegram compresses photos well below this).
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 # ---------------------------------------------------------------------------
 # Telegram update models
@@ -50,6 +59,15 @@ class TelegramVoice(BaseModel):
     file_size: Optional[int] = None
 
 
+class TelegramPhotoSize(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    file_id: str
+    file_unique_id: str
+    width: int = 0
+    height: int = 0
+    file_size: Optional[int] = None
+
+
 class TelegramMessage(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
     message_id: int
@@ -58,6 +76,8 @@ class TelegramMessage(BaseModel):
     date: int = 0
     text: Optional[str] = None
     voice: Optional[TelegramVoice] = None
+    photo: Optional[list[TelegramPhotoSize]] = None
+    caption: Optional[str] = None
 
 
 class TelegramUpdate(BaseModel):
@@ -121,10 +141,10 @@ async def telegram_webhook(
     msg = update.message
 
     # 6. Messages with no processable content need no DB access
-    if not msg.text and not msg.voice:
+    if not msg.text and not msg.voice and not msg.photo:
         return {"status": "ok", "action": "ignored"}
 
-    # 7. Get Supabase client (only needed for text/voice capture paths)
+    # 7. Get Supabase client (only needed for capture paths)
     try:
         client = get_supabase_client()
     except SupabaseConfigurationError as exc:
@@ -132,7 +152,9 @@ async def telegram_webhook(
 
     if msg.text:
         return await _capture_text(client, update, msg)
-    return await _capture_voice(client, update, msg)  # msg.voice is guaranteed non-None here
+    if msg.voice:
+        return await _capture_voice(client, update, msg)
+    return await _capture_photo(client, update, msg)  # msg.photo guaranteed non-None here
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +474,302 @@ async def _capture_voice(client: Client, update: TelegramUpdate, msg: TelegramMe
 
     await _send_telegram_reply(msg.chat.id)
     return {"status": "ok", "action": "captured"}
+
+
+# ---------------------------------------------------------------------------
+# Photo capture path (Phase 17) — food photos → vision estimate
+# ---------------------------------------------------------------------------
+
+
+async def _capture_photo(client: Client, update: TelegramUpdate, msg: TelegramMessage) -> dict:
+    # Telegram sends `photo` as an ascending-size array; the last entry is the largest.
+    photo = msg.photo[-1]  # guaranteed non-empty by caller
+    caption = msg.caption
+
+    source_message_id = f"{msg.chat.id}:{msg.message_id}"
+    existing = (
+        client.table("capture_events")
+        .select("id")
+        .eq("source", "telegram_photo")
+        .eq("source_message_id", source_message_id)
+        .execute()
+    )
+
+    if existing.data:
+        existing_capture_id = existing.data[0]["id"]
+        inbox_check = (
+            client.table("inbox_items")
+            .select("id")
+            .eq("capture_event_id", existing_capture_id)
+            .execute()
+        )
+        if not inbox_check.data:
+            # Partial-failure recovery: cannot re-run vision safely, leave for manual review.
+            _insert_recovery_inbox(
+                client,
+                existing_capture_id,
+                {
+                    "capture_event_id": existing_capture_id,
+                    "item_type": "unknown",
+                    "review_status": "needs_manual_classification",
+                    "title": "Food photo",
+                    "body": "",
+                    "structured_json": {},
+                },
+            )
+        return {"status": "ok", "action": "duplicate_ignored"}
+
+    try:
+        capture_result = (
+            client.table("capture_events")
+            .insert({
+                "source": "telegram_photo",
+                "source_message_id": source_message_id,
+                "raw_text": caption,
+                "processing_status": "received",
+                "metadata": {
+                    "update_id": update.update_id,
+                    "chat_id": msg.chat.id,
+                    "user_id": msg.from_.id if msg.from_ else None,
+                    "message_date": msg.date,
+                    "caption": caption,
+                },
+            })
+            .execute()
+        )
+        capture_id = capture_result.data[0]["id"]
+    except Exception:
+        logger.warning(
+            "capture_events insert failed for telegram_photo %s; checking for concurrent duplicate",
+            source_message_id,
+        )
+        conflict = (
+            client.table("capture_events")
+            .select("id")
+            .eq("source", "telegram_photo")
+            .eq("source_message_id", source_message_id)
+            .execute()
+        )
+        if conflict.data:
+            conflict_id = conflict.data[0]["id"]
+            inbox_conflict = (
+                client.table("inbox_items")
+                .select("id")
+                .eq("capture_event_id", conflict_id)
+                .execute()
+            )
+            if not inbox_conflict.data:
+                _insert_recovery_inbox(
+                    client,
+                    conflict_id,
+                    {
+                        "capture_event_id": conflict_id,
+                        "item_type": "unknown",
+                        "review_status": "needs_manual_classification",
+                        "title": "Food photo",
+                        "body": "",
+                        "structured_json": {},
+                    },
+                )
+            return {"status": "ok", "action": "duplicate_ignored"}
+        raise
+
+    try:
+        inbox_result = client.table("inbox_items").insert({
+            "capture_event_id": capture_id,
+            "item_type": "unknown",
+            "review_status": "pending",
+            "title": "Food photo",
+            "body": "",
+            "structured_json": {},
+        }).execute()
+        inbox_id = inbox_result.data[0]["id"]
+    except Exception:
+        logger.warning(
+            "inbox_items insert conflict for capture %s; fetching existing inbox_id", capture_id
+        )
+        inbox_fetch = (
+            client.table("inbox_items")
+            .select("id")
+            .eq("capture_event_id", capture_id)
+            .execute()
+        )
+        if not inbox_fetch.data:
+            raise
+        inbox_id = inbox_fetch.data[0]["id"]
+
+    await _process_food_photo_and_update(client, photo, caption, capture_id, inbox_id)
+
+    await _send_telegram_reply(msg.chat.id)
+    return {"status": "ok", "action": "captured"}
+
+
+async def _process_food_photo_and_update(
+    client: Client,
+    photo: TelegramPhotoSize,
+    caption: Optional[str],
+    capture_id: str,
+    inbox_id: str,
+) -> None:
+    """
+    Download the photo, store it, run the vision estimate, and update the inbox item.
+
+    Food → inbox item becomes item_type=food with an editable calorie/macro estimate.
+    Not food / error / no key → needs_manual_classification (never a fabricated meal).
+    Exactly one food_vision agent_runs row is written.
+    """
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    agent_input: dict[str, Any] = {"file_id": photo.file_id, "caption": caption}
+
+    def _fail(processing_status: str, error_type: str, message: str) -> None:
+        _mark_needs_manual(client, inbox_id)
+        try:
+            client.table("capture_events").update({
+                "processing_status": processing_status,
+            }).eq("id", capture_id).execute()
+        except Exception:
+            logger.exception("Failed to update capture_events.processing_status (photo path)")
+        try:
+            client.table("agent_runs").insert({
+                "capture_event_id": capture_id,
+                "inbox_item_id": inbox_id,
+                "agent_name": "food_vision",
+                "model": FOOD_VISION_MODEL,
+                "input_json": agent_input,
+                "output_json": {},
+                "error_json": {"error_type": error_type, "message": message},
+            }).execute()
+        except Exception:
+            logger.exception("Failed to write food_vision failure agent_runs record")
+
+    if not bot_token:
+        _fail("classification_failed", "no_bot_token", "TELEGRAM_BOT_TOKEN not configured")
+        return
+
+    if photo.file_size is not None and photo.file_size > MAX_IMAGE_BYTES:
+        _fail("classification_failed", "image_too_large", f"file_size {photo.file_size} too large")
+        return
+
+    # Resolve file_id → server-side path, then download. URLs embed the bot token — never log.
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            resp = await http.get(
+                f"https://api.telegram.org/bot{bot_token}/getFile",
+                params={"file_id": photo.file_id},
+            )
+            resp.raise_for_status()
+            file_path = resp.json()["result"]["file_path"]
+    except Exception as exc:
+        _fail("classification_failed", "getfile_failed", type(exc).__name__)
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            dl = await http.get(f"https://api.telegram.org/file/bot{bot_token}/{file_path}")
+            dl.raise_for_status()
+            image_data: bytes = dl.content
+    except Exception as exc:
+        _fail("classification_failed", "download_failed", type(exc).__name__)
+        return
+
+    if len(image_data) > MAX_IMAGE_BYTES:
+        _fail("classification_failed", "image_too_large", f"downloaded {len(image_data)} bytes")
+        return
+
+    # Store the photo (private bucket) and record its path on the immutable capture event.
+    object_path = f"{capture_id}.jpg"
+    try:
+        upload_food_photo(image_data, object_path)
+        client.table("capture_events").update({
+            "image_path": object_path,
+        }).eq("id", capture_id).execute()
+    except Exception as exc:
+        _fail("classification_failed", "storage_upload_failed", type(exc).__name__)
+        logger.exception("Failed to upload/record food photo")
+        return
+
+    # Vision estimate. No-key path returns is_food=False (→ needs_manual, no fabricated meal).
+    try:
+        result = await classify_food_image(image_data, caption)
+    except FoodVisionValidationError as exc:
+        _fail("invalid_ai_output", "invalid_ai_output", str(exc))
+        return
+    except FoodVisionError as exc:
+        _fail("classification_failed", "food_vision_failed", str(exc))
+        return
+    except Exception as exc:
+        _fail("classification_failed", "unexpected", type(exc).__name__)
+        logger.exception("Unexpected error during food vision")
+        return
+
+    if not result.is_food:
+        # Image stored, but not a meal — route to manual review without inventing nutrition.
+        _mark_needs_manual(client, inbox_id)
+        try:
+            client.table("capture_events").update({
+                "processing_status": "classified",
+            }).eq("id", capture_id).execute()
+        except Exception:
+            logger.exception("Failed to update capture_events.processing_status (not-food)")
+        try:
+            client.table("agent_runs").insert({
+                "capture_event_id": capture_id,
+                "inbox_item_id": inbox_id,
+                "agent_name": "food_vision",
+                "model": FOOD_VISION_MODEL,
+                "input_json": agent_input,
+                "output_json": result.model_dump(),
+                "error_json": None,
+            }).execute()
+        except Exception:
+            logger.exception("Failed to write food_vision not-food agent_runs record")
+        return
+
+    structured = {
+        k: v
+        for k, v in {
+            "description": result.description,
+            "meal_type": result.meal_type,
+            "logged_at": None,
+            "calories": result.calories,
+            "protein_g": result.protein_g,
+            "carbs_g": result.carbs_g,
+            "fat_g": result.fat_g,
+        }.items()
+        if v is not None
+    }
+
+    try:
+        client.table("inbox_items").update({
+            "item_type": "food",
+            "title": (result.description or "Food photo")[:100],
+            "body": "",
+            "structured_json": structured,
+            "confidence": float(result.confidence),
+            "review_status": "pending",
+        }).eq("id", inbox_id).execute()
+    except Exception:
+        logger.exception("Failed to update inbox_item with food vision result")
+
+    try:
+        client.table("capture_events").update({
+            "processing_status": "classified",
+        }).eq("id", capture_id).execute()
+    except Exception:
+        logger.exception("Failed to update capture_events.processing_status (food)")
+
+    try:
+        client.table("agent_runs").insert({
+            "capture_event_id": capture_id,
+            "inbox_item_id": inbox_id,
+            "agent_name": "food_vision",
+            "model": FOOD_VISION_MODEL,
+            "input_json": agent_input,
+            "output_json": result.model_dump(),
+            "error_json": None,
+        }).execute()
+    except Exception:
+        logger.exception("Failed to write food_vision success agent_runs record")
 
 
 # ---------------------------------------------------------------------------

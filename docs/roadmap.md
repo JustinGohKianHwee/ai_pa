@@ -634,11 +634,16 @@ while the cloud reads stored snapshots from Supabase for history/value; IBKR sta
 > actually use → summaries → then the memory/AI layer. A dedicated security review gates the
 > high-sensitivity AI work.
 
-### Phase 17 — Food upgrade: calories, macros & photo input
-Multimodal capture: a food photo via Telegram → vision model estimates the dish +
-calories/macros → through the review pipeline (you confirm/correct the estimate) → extend
-`food_logs` (calories, protein, …) + Supabase Storage for images. Daily calorie/macro totals
-on the food page and dashboard tile.
+### Phase 17 — Food upgrade: calories, macros & photo input ✓ implementation complete (manual setup pending)
+Multimodal capture: a food **photo** via Telegram → `gpt-4o-mini` vision estimates the dish +
+calories/macros → through the review pipeline (you confirm/correct the editable estimate) →
+extended `food_logs` (calories, protein_g, carbs_g, fat_g, image_path). **Text** food captures
+also get estimates. Photos are stored in a **private `food-photos` Supabase bucket** (signed-URL
+reads); non-food photos go to `needs_manual` (no fabricated meal). Daily calorie/macro totals on
+the food page; the dashboard food tile shows today's calories. Migration `0012` extends
+`food_logs` + `capture_events.image_path` + `confirm_food_item` (preserving the 15b memory-event
+write). **Manual prerequisites:** apply `0012` and create the private `food-photos` bucket.
+376 backend tests pass. (Built by Claude directly — Codex was rate-limited.)
 
 ### Phase 18 — Exercise / workouts
 Capture → confirm → `exercise_logs` (type, duration, sets/reps/distance). Dashboard tile.

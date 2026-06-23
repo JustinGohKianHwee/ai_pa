@@ -60,6 +60,7 @@ export default async function DashboardPage() {
   const openTasks = tasks?.items?.filter((t) => t.status === "open").length ?? null;
   const spend = finance?.totals_by_currency ?? [];
   const mealsToday = food?.total ?? null;
+  const caloriesToday = food?.totals?.calories ?? null;
   const upcoming = calendar?.items ?? [];
   const pending = inbox?.total ?? null;
 
@@ -202,9 +203,9 @@ export default async function DashboardPage() {
 
         <MetricTile
           href="/food"
-          label="Meals today"
-          value={mealsToday === null ? "—" : fmtInt(mealsToday)}
-          sub="logged"
+          label="Calories today"
+          value={caloriesToday === null ? "—" : fmtInt(caloriesToday)}
+          sub={mealsToday ? `${mealsToday} meal${mealsToday !== 1 ? "s" : ""}` : "logged"}
         />
         <MetricTile href="/calendar" label="Calendar" value={fmtInt(upcoming.length)} sub="intentions" />
       </BentoGrid>

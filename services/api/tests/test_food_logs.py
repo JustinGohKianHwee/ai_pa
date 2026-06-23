@@ -95,7 +95,11 @@ def test_empty_list_returns_empty(monkeypatch):
     with patch("app.routes.food.get_supabase_client", return_value=mock):
         response = client.get("/food_logs", headers=_auth_header())
     assert response.status_code == 200
-    assert response.json() == {"items": [], "total": 0}
+    assert response.json() == {
+        "items": [],
+        "total": 0,
+        "totals": {"calories": 0.0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0},
+    }
 
 
 def test_returns_correct_shape_and_total(monkeypatch):
@@ -198,6 +202,54 @@ def test_null_logged_at_survives_roundtrip(monkeypatch):
 # ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Nutrition + totals + image (Phase 17)
+# ---------------------------------------------------------------------------
+
+
+def test_nutrition_fields_and_totals(monkeypatch):
+    rows = [
+        {**FOOD_LOG_ROW, "calories": 600, "protein_g": 30, "carbs_g": 80, "fat_g": 15},
+        {**FOOD_LOG_ROW_2, "calories": 250, "protein_g": 8, "carbs_g": 30, "fat_g": 9},
+    ]
+    mock = _make_list_mock(rows)
+    with patch("app.routes.food.get_supabase_client", return_value=mock):
+        response = client.get("/food_logs", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"][0]["calories"] == 600
+    assert body["items"][0]["protein_g"] == 30
+    assert body["totals"] == {
+        "calories": 850.0,
+        "protein_g": 38.0,
+        "carbs_g": 110.0,
+        "fat_g": 24.0,
+    }
+
+
+def test_missing_nutrition_is_null_and_excluded_from_totals(monkeypatch):
+    # FOOD_LOG_ROW has no nutrition keys at all.
+    mock = _make_list_mock([FOOD_LOG_ROW])
+    with patch("app.routes.food.get_supabase_client", return_value=mock):
+        response = client.get("/food_logs", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"][0]["calories"] is None
+    assert body["totals"]["calories"] == 0.0
+
+
+def test_image_url_signed_when_present(monkeypatch):
+    row = {**FOOD_LOG_ROW, "image_path": "abc.jpg"}
+    mock = _make_list_mock([row])
+    with (
+        patch("app.routes.food.get_supabase_client", return_value=mock),
+        patch("app.routes.food.signed_food_photo_url", return_value="https://signed/abc"),
+    ):
+        response = client.get("/food_logs", headers=_auth_header())
+    assert response.status_code == 200
+    assert response.json()["items"][0]["image_url"] == "https://signed/abc"
 
 
 def test_db_config_error_returns_500(monkeypatch):
