@@ -5,12 +5,18 @@ import { fmtDateTime, fmtInt, fmtNum } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-async function getExerciseLogs(): Promise<ExerciseLogsResponse> {
-  const res = await authedFetch("/exercise_logs?date=today", { cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`Backend returned ${res.status}: ${res.statusText}`);
+// Returns null on backend failure (e.g. a cold-start 503, or before migration 0013 is
+// applied) so the page renders a soft message instead of a server-side crash. Auth
+// redirects (401 -> /login) still propagate.
+async function getExerciseLogs(): Promise<ExerciseLogsResponse | null> {
+  try {
+    const res = await authedFetch("/exercise_logs?date=today", { cache: "no-store" });
+    return res.ok ? ((await res.json()) as ExerciseLogsResponse) : null;
+  } catch (e) {
+    const digest = (e as { digest?: string })?.digest;
+    if (typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")) throw e;
+    return null;
   }
-  return res.json();
 }
 
 function TotalStat({ label, value, unit }: { label: string; value: string; unit: string }) {
@@ -64,6 +70,19 @@ function ExerciseLogCard({ log }: { log: ExerciseLog }) {
 
 export default async function ExercisePage() {
   const data = await getExerciseLogs();
+
+  if (data === null) {
+    return (
+      <PageContainer>
+        <PageHeader title="Exercise" subtitle="Couldn't load workouts" />
+        <EmptyState>
+          Exercise data is unavailable right now. If this persists, the database migration
+          (0013) may not be applied yet.
+        </EmptyState>
+      </PageContainer>
+    );
+  }
+
   const t = data.totals;
 
   return (

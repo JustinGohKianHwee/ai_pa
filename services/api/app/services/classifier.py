@@ -42,6 +42,14 @@ Allowed types and the EXACT fields to extract for each (no extra fields):
   journal     – { "content": str, "mood": str|null }
   unknown     – {}
 
+Disambiguation rules (apply before choosing a type):
+  - Physical activity or workouts — running, jogging, walking, steps, gym, weights/lifting, \
+swimming, cycling, hiking, yoga, pilates, sports, a race — are ALWAYS "exercise", never "food". \
+"5k run", "ran 5k in 28 min", "did legs at the gym", "1h yoga" are exercise.
+  - "food" is ONLY for eating or drinking something. Calories EATEN → food; calories BURNED \
+through activity → exercise.
+  - Do not invent a logged_at timestamp. If no explicit date/time is given, set logged_at to null.
+
 Respond ONLY with valid JSON in this exact shape — no extra commentary:
 {
   "item_type": "<one of the types above>",
