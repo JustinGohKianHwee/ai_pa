@@ -58,11 +58,15 @@ thing to do is a "task", NOT a habit.
   - A "goal" is a desired OUTCOME or target over time, often with a target and/or deadline \
 ("save $50k for the BTO downpayment", "reach 100k portfolio by end 2027", "read 24 books this \
 year"). A single action is a "task"; a passing thought or preference is a "note".
-  - A "decision" records a CHOICE the user has already made between alternatives, usually with a \
-reason ("decided X instead of Y because Z", "going with X over Y", "chose to ..."). Distinguish: a \
-decision is a choice already made (vs a "goal", a future outcome to achieve; vs a "task", an action \
-to perform; vs a "note", an observation or preference with no choice). If the message is not \
-clearly a deliberate choice, prefer "note" or "unknown" — do NOT fabricate a decision.
+  - A "decision" records a CHOICE between alternatives, usually with a reason. Strong cues: \
+"choose / chose / choosing / decide / decided / going with / opting for / picking X (instead of / \
+over / rather than) Y", or any statement that weighs options and commits to one. \
+Example: "Choose term insurance instead of whole life for pure protection" → decision (NOT note). \
+"X instead of Y" or "X over Y" is ALWAYS a decision. Distinguish from: a "goal" (a future \
+outcome/target to achieve), a "task" (a single action to perform), and a "note" (an observation, \
+fact, or preference with NO choice between alternatives). Only fall back to "note"/"unknown" when \
+there is genuinely no choice being made — do not fabricate a decision, but do not downgrade a clear \
+choice to a note either.
   - Do not invent a logged_at timestamp, a goal target_date, or a decision decided_at/confidence. \
 If not explicitly given, set them to null.
 
