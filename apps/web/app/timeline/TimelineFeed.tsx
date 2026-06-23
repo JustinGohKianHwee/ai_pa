@@ -9,6 +9,7 @@ import {
   Dumbbell,
   Repeat,
   Target,
+  Scale,
   Calendar,
   PieChart,
   Circle,
@@ -105,6 +106,19 @@ const DOMAIN_META: Record<string, DomainMeta> = {
     summary: (p) =>
       join([str(p.target), str(p.target_date) ? `by ${str(p.target_date)}` : null]),
     href: () => "/goals",
+  },
+  decision: {
+    label: "Decision",
+    icon: Scale,
+    tone: "warning",
+    title: (p) => str(p.decision) ?? "Decision",
+    summary: (p) =>
+      join([
+        str(p.category),
+        num(p.confidence) != null ? `confidence ${Math.round(num(p.confidence)! * 100)}%` : null,
+        str(p.decided_at),
+      ]),
+    href: () => "/decisions",
   },
   calendar: {
     label: "Calendar",

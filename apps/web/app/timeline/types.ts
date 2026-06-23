@@ -21,6 +21,7 @@ export const TIMELINE_DOMAINS: { value: string; label: string }[] = [
   { value: "exercise", label: "Exercise" },
   { value: "habit", label: "Habits" },
   { value: "goal", label: "Goals" },
+  { value: "decision", label: "Decisions" },
   { value: "calendar", label: "Calendar" },
   { value: "portfolio_snapshot", label: "Portfolio" },
 ];

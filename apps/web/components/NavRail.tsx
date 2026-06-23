@@ -14,6 +14,7 @@ import {
   History,
   Repeat,
   Target,
+  Scale,
   PieChart,
   LogOut,
 } from "lucide-react";
@@ -29,6 +30,7 @@ const items = [
   { href: "/exercise", label: "Exercise", icon: Dumbbell },
   { href: "/habits", label: "Habits", icon: Repeat },
   { href: "/goals", label: "Goals", icon: Target },
+  { href: "/decisions", label: "Decisions", icon: Scale },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/review", label: "Review", icon: ClipboardList },
   { href: "/timeline", label: "Timeline", icon: History },

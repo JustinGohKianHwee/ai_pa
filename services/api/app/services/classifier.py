@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 CLASSIFICATION_MODEL = "gpt-4o-mini"
 
 ItemType = Literal[
-    "task", "finance", "calendar", "food", "exercise", "habit", "goal",
+    "task", "finance", "calendar", "food", "exercise", "habit", "goal", "decision",
     "investment", "note", "journal", "unknown",
 ]
 
@@ -40,6 +40,7 @@ Allowed types and the EXACT fields to extract for each (no extra fields):
   exercise    – { "activity": str, "duration_min": float|null, "distance_km": float|null, "sets": int|null, "reps": int|null, "intensity": str|null, "calories": float|null, "logged_at": str|null, "notes": str|null }  (extract the fields present; estimate calories burned roughly if you can — approximate is fine)
   habit       – { "name": str, "cadence": str|null, "target": str|null, "notes": str|null }  (cadence is free text like "daily" or "3x a week"; do not invent one)
   goal        – { "title": str, "description": str|null, "target": str|null, "target_date": str|null, "notes": str|null }  (target/target_date are free text; if no date is given, target_date is null — do not invent one)
+  decision    – { "decision": str, "reason": str|null, "options_considered": str|null, "expected_outcome": str|null, "confidence": float|null, "category": str|null, "decided_at": str|null, "notes": str|null }  (decision = the choice made; confidence is the user's 0.0-1.0 confidence ONLY if they state it; do not invent confidence or decided_at)
   investment  – { "action_intent": "buy"|"sell"|"note", "ticker": str|null, "amount": float|null, "currency": "SGD" (default), "notes": str|null }
   note        – { "content": str, "tags": [str] }
   journal     – { "content": str, "mood": str|null }
@@ -57,8 +58,13 @@ thing to do is a "task", NOT a habit.
   - A "goal" is a desired OUTCOME or target over time, often with a target and/or deadline \
 ("save $50k for the BTO downpayment", "reach 100k portfolio by end 2027", "read 24 books this \
 year"). A single action is a "task"; a passing thought or preference is a "note".
-  - Do not invent a logged_at timestamp or a goal target_date. If no explicit date/time is given, \
-set it to null.
+  - A "decision" records a CHOICE the user has already made between alternatives, usually with a \
+reason ("decided X instead of Y because Z", "going with X over Y", "chose to ..."). Distinguish: a \
+decision is a choice already made (vs a "goal", a future outcome to achieve; vs a "task", an action \
+to perform; vs a "note", an observation or preference with no choice). If the message is not \
+clearly a deliberate choice, prefer "note" or "unknown" — do NOT fabricate a decision.
+  - Do not invent a logged_at timestamp, a goal target_date, or a decision decided_at/confidence. \
+If not explicitly given, set them to null.
 
 Respond ONLY with valid JSON in this exact shape — no extra commentary:
 {
@@ -180,6 +186,27 @@ class GoalStructuredJson(BaseModel):
     notes: Optional[str] = None
 
 
+class DecisionStructuredJson(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: str
+    reason: Optional[str] = None
+    options_considered: Optional[str] = None
+    expected_outcome: Optional[str] = None
+    confidence: Optional[float] = None
+    category: Optional[str] = None
+    decided_at: Optional[str] = None
+    notes: Optional[str] = None
+
+    @field_validator("confidence")
+    @classmethod
+    def confidence_in_range(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return v
+        if not math.isfinite(v) or not (0.0 <= v <= 1.0):
+            raise ValueError("confidence must be a finite number between 0.0 and 1.0")
+        return v
+
+
 class InvestmentStructuredJson(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action_intent: Literal["buy", "sell", "note"]
@@ -214,6 +241,7 @@ _ITEM_TYPE_SCHEMAS: dict[str, type[BaseModel]] = {
     "exercise":   ExerciseStructuredJson,
     "habit":      HabitStructuredJson,
     "goal":       GoalStructuredJson,
+    "decision":   DecisionStructuredJson,
     "investment": InvestmentStructuredJson,
     "journal":    JournalStructuredJson,
     "note":       NoteStructuredJson,

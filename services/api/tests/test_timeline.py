@@ -127,6 +127,14 @@ def test_habit_and_goal_are_accepted_domains():
     q.in_.assert_called_once_with("domain", ["habit", "goal"])
 
 
+def test_decision_is_accepted_domain():
+    cm, q = _chain_mock([_row(1, domain="decision")])
+    with patch("app.routes.timeline.get_supabase_client", return_value=cm):
+        res = client.get("/timeline?domains=decision", headers=_auth())
+    assert res.status_code == 200
+    q.in_.assert_called_once_with("domain", ["decision"])
+
+
 def test_date_filters_applied():
     cm, q = _chain_mock([_row(1)])
     with patch("app.routes.timeline.get_supabase_client", return_value=cm):

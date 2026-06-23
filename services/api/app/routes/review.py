@@ -8,6 +8,7 @@ from supabase import Client
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
 from app.routes.calendar import CalendarIntentResponse
+from app.routes.decisions import DecisionResponse
 from app.routes.exercise import ExerciseLogResponse
 from app.routes.finance import MoneyEventResponse
 from app.routes.food import FoodLogResponse
@@ -98,6 +99,12 @@ class ConfirmGoalResponse(BaseModel):
     """Returned when a goal-type item is confirmed: the inbox item plus its goal."""
     inbox_item: ReviewedItemResponse
     goal: GoalResponse
+
+
+class ConfirmDecisionResponse(BaseModel):
+    """Returned when a decision-type item is confirmed: the inbox item plus its decision."""
+    inbox_item: ReviewedItemResponse
+    decision: DecisionResponse
 
 
 class EditInboxItemRequest(BaseModel):
@@ -782,6 +789,90 @@ def _confirm_goal(client: Client, inbox_id: str, item: dict) -> ConfirmGoalRespo
     )
 
 
+def _fetch_decision(client: Client, inbox_id: str) -> Optional[dict]:
+    res = client.table("decisions").select("*").eq("inbox_item_id", inbox_id).execute()
+    return res.data[0] if res.data else None
+
+
+def _recheck_decision_confirm(
+    client: Client, inbox_id: str, original: dict
+) -> ConfirmDecisionResponse:
+    """Decision counterpart of _recheck_food_confirm (idempotent 200 / 409 / 503)."""
+    try:
+        item = _fetch_item(client, inbox_id)
+        decision = _fetch_decision(client, inbox_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    if item is not None and decision is not None and item["review_status"] == "confirmed":
+        return ConfirmDecisionResponse(
+            inbox_item=ReviewedItemResponse(**item), decision=DecisionResponse(**decision)
+        )
+
+    if (
+        item is None
+        or item["review_status"] != original["review_status"]
+        or item["updated_at"] != original["updated_at"]
+    ):
+        raise HTTPException(
+            status_code=409, detail="Item was modified concurrently; confirm failed"
+        )
+
+    raise HTTPException(
+        status_code=503, detail="Decision confirmation database operation failed"
+    )
+
+
+def _confirm_decision(client: Client, inbox_id: str, item: dict) -> ConfirmDecisionResponse:
+    """Phase 21 atomic confirmation for decision-type items via confirm_decision_item RPC."""
+    if item["review_status"] == "confirmed":
+        try:
+            existing = _fetch_decision(client, inbox_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database query failed") from exc
+        if existing is not None:
+            return ConfirmDecisionResponse(
+                inbox_item=ReviewedItemResponse(**item), decision=DecisionResponse(**existing)
+            )
+        raise HTTPException(
+            status_code=409,
+            detail="Item was confirmed before the decisions module existed; backfill is not supported.",
+        )
+
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot confirm item with review_status='{item['review_status']}'",
+        )
+
+    err, normalized = _validate_structured_json("decision", item["structured_json"])
+    if err:
+        raise HTTPException(status_code=400, detail=f"structured_json invalid: {err}")
+
+    if not (normalized.get("decision") or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="A decision requires a non-empty decision before it can be confirmed.",
+        )
+
+    try:
+        result = client.rpc(
+            "confirm_decision_item",
+            {"p_inbox_id": inbox_id, "p_expected_updated_at": item["updated_at"]},
+        ).execute()
+    except Exception:
+        return _recheck_decision_confirm(client, inbox_id, item)
+
+    data = result.data
+    if not data:
+        return _recheck_decision_confirm(client, inbox_id, item)
+
+    return ConfirmDecisionResponse(
+        inbox_item=ReviewedItemResponse(**data["inbox_item"]),
+        decision=DecisionResponse(**data["decision"]),
+    )
+
+
 @router.patch(
     "/{inbox_id}/confirm",
     dependencies=[Depends(require_user)],
@@ -789,7 +880,7 @@ def _confirm_goal(client: Client, inbox_id: str, item: dict) -> ConfirmGoalRespo
 )
 def confirm_inbox_item(
     inbox_id: str,
-) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse | ConfirmExerciseResponse | ConfirmHabitResponse | ConfirmGoalResponse:
+) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse | ConfirmExerciseResponse | ConfirmHabitResponse | ConfirmGoalResponse | ConfirmDecisionResponse:
     try:
         client = get_supabase_client()
     except SupabaseConfigurationError as exc:
@@ -832,6 +923,10 @@ def confirm_inbox_item(
 
     if item["item_type"] == "goal":
         return _confirm_goal(client, inbox_id, item)
+
+    # Phase 21: decision items confirm atomically and create a decision record.
+    if item["item_type"] == "decision":
+        return _confirm_decision(client, inbox_id, item)
 
     # Non-module items keep the Phase 7 status-only confirmation (no domain record).
     if item["review_status"] == "confirmed":

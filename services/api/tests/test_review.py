@@ -1649,3 +1649,72 @@ def test_confirm_goal_empty_title_returns_400(monkeypatch):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
     assert response.status_code == 400
     mock.rpc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Phase 21 — decision confirm dispatch
+# ---------------------------------------------------------------------------
+
+PENDING_DECISION_ROW = {
+    "id": INBOX_ID,
+    "item_type": "decision",
+    "review_status": "pending",
+    "title": "Term insurance",
+    "body": "",
+    "confidence": 0.8,
+    "reviewed_at": None,
+    "updated_at": "2024-01-01T12:00:00+00:00",
+    "structured_json": {
+        "decision": "Term insurance over whole life",
+        "reason": "pure protection",
+        "confidence": 0.8,
+    },
+}
+DECISION_ROW = {
+    "id": "dec-uuid-1",
+    "inbox_item_id": INBOX_ID,
+    "decision": "Term insurance over whole life",
+    "reason": "pure protection",
+    "options_considered": None,
+    "expected_outcome": None,
+    "confidence": 0.8,
+    "category": None,
+    "decided_at": None,
+    "status": "active",
+    "notes": None,
+    "created_at": "2024-01-01T12:05:00+00:00",
+    "updated_at": "2024-01-01T12:05:00+00:00",
+}
+DECISION_RPC_RESULT = {
+    "inbox_item": {**PENDING_DECISION_ROW, "review_status": "confirmed", "reviewed_at": "2024-01-01T13:00:00+00:00"},
+    "decision": DECISION_ROW,
+}
+
+
+def test_confirm_pending_decision_creates_decision(monkeypatch):
+    mock = _make_hg_confirm_mock(PENDING_DECISION_ROW, rpc_result=DECISION_RPC_RESULT)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inbox_item"]["review_status"] == "confirmed"
+    assert body["decision"]["decision"] == "Term insurance over whole life"
+    assert mock.rpc.call_args.args[0] == "confirm_decision_item"
+
+
+def test_confirm_decision_empty_decision_returns_400(monkeypatch):
+    row = {**PENDING_DECISION_ROW, "structured_json": {"decision": "  "}}
+    mock = _make_hg_confirm_mock(row)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+def test_confirm_decision_invalid_structured_json_returns_400(monkeypatch):
+    row = {**PENDING_DECISION_ROW, "structured_json": {"decision": "x", "outcome_score": 5}}
+    mock = _make_hg_confirm_mock(row)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()

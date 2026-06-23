@@ -28,7 +28,8 @@ router = APIRouter(tags=["timeline"])
 
 # Domains the timeline understands (matches memory_events.domain written by the RPCs).
 ALLOWED_DOMAINS = {
-    "task", "money", "food", "calendar", "exercise", "habit", "goal", "portfolio_snapshot",
+    "task", "money", "food", "calendar", "exercise", "habit", "goal", "decision",
+    "portfolio_snapshot",
 }
 
 DEFAULT_LIMIT = 50

@@ -14,6 +14,7 @@ const VALID_ITEM_TYPES = [
   "exercise",
   "habit",
   "goal",
+  "decision",
   "investment",
   "note",
   "journal",
@@ -93,6 +94,16 @@ export function InboxCard({ item }: { item: InboxItem }) {
   const goalSummary =
     item.item_type === "goal"
       ? [str(sj.target), str(sj.target_date) ? `by ${str(sj.target_date)}` : null]
+          .filter(Boolean)
+          .join(" · ") || null
+      : null;
+  const decisionSummary =
+    item.item_type === "decision"
+      ? [
+          str(sj.category),
+          typeof sj.confidence === "number" ? `confidence ${Math.round(sj.confidence * 100)}%` : null,
+          str(sj.decided_at) ? `decided ${str(sj.decided_at)}` : null,
+        ]
           .filter(Boolean)
           .join(" · ") || null
       : null;
@@ -205,6 +216,7 @@ export function InboxCard({ item }: { item: InboxItem }) {
 
       {habitSummary ? <p className="text-sm text-muted">{habitSummary}</p> : null}
       {goalSummary ? <p className="text-sm text-muted">{goalSummary}</p> : null}
+      {decisionSummary ? <p className="text-sm text-muted">{decisionSummary}</p> : null}
 
       {needsManual ? (
         <p className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-warning">

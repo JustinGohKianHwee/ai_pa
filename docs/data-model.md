@@ -335,6 +335,27 @@ active/achieved/abandoned, default `active`), `created_at`, `updated_at` (via th
 
 ---
 
+### `decisions` — Phase 21 (implemented, `supabase/migrations/0016_decisions.sql`)
+
+Confirmed decision-journal entries. One row per source `inbox_item` (UNIQUE `inbox_item_id`),
+written only by `confirm_decision_item` (appends one `memory_events` row, `domain='decision'`,
+payload `{decision, category, confidence, decided_at}`). **`status` is the only field mutable
+after confirmation** (`active` / `reversed` / `archived`) via `PATCH /decisions/{id}/status`,
+mirroring goals. **Status changes do NOT write `memory_events`.**
+
+**Columns:** `id`, `inbox_item_id` (UNIQUE FK), `owner_id` (default-filled, not null), `decision`
+(not null — the choice made), `reason`, `options_considered`, `expected_outcome` (creation-time
+expectation only), `confidence` (numeric, the **user's** 0–1 confidence, CHECK-constrained,
+distinct from the classifier confidence), `category`, `decided_at` (**text**, verbatim AI date,
+not parsed), `status` (CHECK active/reversed/archived, default `active`), `notes`, `created_at`,
+`updated_at` (via the shared `set_updated_at()` trigger). RLS deny-by-default; service-role only.
+
+Migration `0016` also **widens the `inbox_items.item_type` CHECK** to include `decision`. **Not
+stored yet (deferred):** observed/actual outcome, outcome-review fields, decision-quality score,
+`related_goal_id`/attribution (Phase 25), structured options array, decision-tree structure.
+
+---
+
 ### Portfolio data — Phase 14 (external, read-only)
 
 Phase 14 does not add an `investment_notes` or portfolio-positions table. Current positions,

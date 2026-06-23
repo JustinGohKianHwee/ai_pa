@@ -157,6 +157,7 @@ Always create new commits. Only amend if explicitly asked.
 - `exercise_logs` — confirmed exercise/workout entries (Phase 18+)
 - `habits` — confirmed habit definitions, definition-only (Phase 20+)
 - `goals` — confirmed goals; status active/achieved/abandoned mutable post-confirm (Phase 20+)
+- `decisions` — confirmed decision-journal entries; status active/reversed/archived mutable post-confirm (Phase 21+)
 - no portfolio tables — Phase 14 portfolio is read-only, broker data only, no Supabase writes
 
 See `docs/data-model.md` for full entity descriptions.
