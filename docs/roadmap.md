@@ -707,7 +707,7 @@ reviewed (read-only guard, keyset pagination, defensive formatting), merged, man
 passed. *(Known limitation: only confirmations/snapshots from Phase 15b onward appear; pre-15b
 records are not backfilled.)*
 
-### Phase 20 — Habits & goals ✓ implementation complete (migration/manual verification pending) — *enables feature 4*
+### Phase 20 — Habits & goals — implementation reviewed, merged for manual verification (pending) — *enables feature 4*
 Two definition-style domain modules through capture → confirm, one migration
 `0015_habits_goals.sql`. **Habits are definition-only** (name, cadence [free text], target, notes;
 immutable — no check-ins, streaks, recurrence, or reminders). **Goals** (title, description,
