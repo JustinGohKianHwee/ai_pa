@@ -378,8 +378,28 @@ returns do not append another event. The portfolio snapshot RPC replaces the eve
 canonical snapshot during a refresh, keeping one `snapshot_created` event per snapshot.
 
 `memory_events` is RLS-enabled, RLS-forced, and inaccessible to anon/authenticated database
-roles. It is append-only by convention and has no read API or UI in this phase. Daily summaries,
-embedding queues, embeddings, pgvector, and semantic search remain deferred.
+roles. It is append-only by convention. Daily summaries, embedding queues, embeddings, pgvector,
+and semantic search remain deferred.
+
+**Timeline read-model (Phase 19).** The Daily Life Timeline (`GET /timeline`, `/timeline` page)
+is a read-only projection of `memory_events` — **no domain-table joins**; each event's
+`payload_json` already carries the display fields. The payloads written today are:
+
+| `domain` | `event_type` | `source_table` | `payload_json` keys |
+|---|---|---|---|
+| `task` | `confirmed` | `tasks` | `title, status, due_date` |
+| `money` | `confirmed` | `money_events` | `amount, currency, merchant, direction` |
+| `food` | `confirmed` | `food_logs` | `description, meal_type, calories, logged_at` |
+| `calendar` | `confirmed` | `calendar_intents` | `title, proposed_datetime, location` |
+| `exercise` | `confirmed` | `exercise_logs` | `activity, duration_min, distance_km, logged_at` |
+| `portfolio_snapshot` | `snapshot_created` | `portfolio_snapshots` | `snapshot_date, partial_failure, currency_totals` |
+
+The timeline orders by `occurred_at desc, id desc` with keyset (cursor) pagination, served by the
+existing `idx_memory_events_owner_occurred` index (no new index). It shows **only** these
+confirmation/snapshot events, **from Phase 15b onward** — captures, pending, and rejected items
+are not included, and pre-15b confirmations are not backfilled. Frontend formatting reads each
+payload key defensively (keys may be absent). An optional future index
+`(owner_id, domain, occurred_at desc)` can be added if domain-filtered pages grow large.
 
 ---
 

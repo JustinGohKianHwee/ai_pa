@@ -135,7 +135,7 @@ capture remains reviewable until you explicitly confirm or reject it.
 - Extracts structured data fields (dates, amounts, names, categories)
 - Presents classified items for review in the dashboard inbox
 - Stores confirmed records in the right domain module
-- Surfaces past data through queries, summaries, and reviews
+- Surfaces past data through queries, summaries, reviews, and a chronological life timeline
 - Logs all AI actions for transparency
 
 ---

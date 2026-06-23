@@ -251,6 +251,8 @@ edit, Confirm, and Reject controls.
 - Daily review (Phase 13+)
 - Read-only portfolio view aggregating Tiger and IBKR (Phase 14+)
 - Daily portfolio snapshot status/history (Phase 14.5+)
+- Exercise log view (Phase 18+)
+- Daily Life Timeline — read-only chronological feed over `memory_events` (Phase 19+)
 
 **Key principle:** The frontend never calls AI directly. It reads from Supabase (for
 confirmed domain data) and calls backend API endpoints (for capture and confirmation actions).
@@ -326,8 +328,13 @@ the existing database RPC transactions as follows:
 
 Portfolio snapshot creation similarly writes or replaces one `snapshot_created` memory event.
 `memory_events` is an append-only-by-convention source backlog for future summaries or
-embeddings; it is not itself a vector store and has no API or UI in Phase 15b. Failed
-confirmation transactions leave no domain record and no memory event.
+embeddings; it is not itself a vector store. Failed confirmation transactions leave no domain
+record and no memory event.
+
+**First read consumer (Phase 19):** the Daily Life Timeline (`GET /timeline`) reads
+`memory_events` directly — read-only, no AI, no domain joins, keyset-paginated — projecting each
+event's `payload_json` into a chronological feed. See `docs/data-model.md` for the payload→display
+mapping. Vector embeddings over `memory_events`/summaries remain deferred beyond Phase 15b.
 
 ---
 

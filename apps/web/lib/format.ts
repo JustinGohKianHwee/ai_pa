@@ -31,6 +31,25 @@ export function fmtDateTime(iso: string | null | undefined, timeZone?: string): 
   });
 }
 
+// Day heading for grouped feeds: "Today" / "Yesterday" / "Mon, 23 Jun".
+export function fmtDayHeading(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((startOf(new Date()) - startOf(d)) / 86_400_000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString("en-SG", { weekday: "short", day: "numeric", month: "short" });
+}
+
+export function fmtTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" });
+}
+
 export type Tone = "neutral" | "positive" | "negative" | "warning" | "info" | "accent";
 
 export function pnlTone(n: number | null | undefined): Tone {

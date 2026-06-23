@@ -20,6 +20,7 @@ from app.routes.portfolio_snapshots import router as portfolio_snapshots_router 
 from app.routes.review import router as review_router  # noqa: E402
 from app.routes.tasks import router as tasks_router  # noqa: E402
 from app.routes.telegram import router as telegram_router  # noqa: E402
+from app.routes.timeline import router as timeline_router  # noqa: E402
 
 app = FastAPI(
     title="AI Personal Assistant API",
@@ -38,6 +39,7 @@ app.include_router(food_router)
 app.include_router(exercise_router)
 app.include_router(calendar_router)
 app.include_router(daily_review_router)
+app.include_router(timeline_router)
 app.include_router(portfolio_router)
 app.include_router(portfolio_snapshots_router)
 app.include_router(telegram_router)

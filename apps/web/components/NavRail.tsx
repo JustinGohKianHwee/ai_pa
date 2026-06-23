@@ -11,6 +11,7 @@ import {
   Dumbbell,
   Calendar,
   ClipboardList,
+  History,
   PieChart,
   LogOut,
 } from "lucide-react";
@@ -26,6 +27,7 @@ const items = [
   { href: "/exercise", label: "Exercise", icon: Dumbbell },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/review", label: "Review", icon: ClipboardList },
+  { href: "/timeline", label: "Timeline", icon: History },
   { href: "/portfolio", label: "Portfolio", icon: PieChart },
 ];
 

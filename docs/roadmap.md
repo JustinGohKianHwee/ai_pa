@@ -689,13 +689,22 @@ daily-logging trio (tasks · food · exercise). 394 backend tests pass; frontend
 clean. **Manual prerequisite:** apply `0013` (replace `<OWNER_USER_ID>` first). Plan in
 `docs/phase-18-plan.md`. (Built by Claude directly — Codex rate-limited until 2026-06-26.)
 
-### Phase 19 — Daily Life Timeline (read-only) — *feature 1*
+### Phase 19 — Daily Life Timeline (read-only) — implementation reviewed, merged for manual verification — *feature 1*
 A single chronological, filterable view across tasks, money events, food, calendar intents,
-exercise, portfolio snapshots, and `memory_events`. **Read-only aggregation — no new domain
-writes, no pipeline change.** Built primarily over the append-only `memory_events` log (already
-populated by the 15b confirm RPCs), joined to domain rows for detail. Adds query indexes only.
-This is the human-readable substrate the later assistant will cite, and it surfaces data-quality
-gaps before anything gets embedded.
+exercise, and portfolio snapshots. **Read-only aggregation — no new domain writes, no pipeline
+change, no AI, no migration.** Read entirely from the append-only `memory_events` log (populated
+by the 15b/0012/0013 confirm + snapshot RPCs); **no domain-table joins** — each event's
+`payload_json` carries the display fields. `GET /timeline` with domain + date-range filters and
+**keyset (cursor) pagination** (`occurred_at desc, id desc`, fetch limit+1); `?from`/`?to` ISO
+timestamps (the `from` param is bound to an internal `from_` via `alias="from"`). Frontend
+`/timeline` page + client `TimelineFeed` (filter chips, day grouping, defensive per-domain
+formatting, "Load older"), nav-rail entry, and `fmtDayHeading`/`fmtTime` helpers. Uses the
+existing `idx_memory_events_owner_occurred` index — no new index added. **Scope:** confirmations
++ snapshots only, **post-15b** (no backfill); captures/pending/rejected are not shown. This is the
+first read consumer of `memory_events` and the substrate the later assistant will cite. 415
+backend tests pass; frontend lint/tsc/build clean. **Status:** implementation reviewed (read-only
+guard, keyset pagination, defensive formatting verified), merged for manual verification — not yet
+marked fully complete.
 
 ### Phase 20 — Habits & goals — *enables feature 4*
 Recurring habits (streaks) and goals (target + progress) through capture → confirm. `goals` and
