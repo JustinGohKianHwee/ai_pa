@@ -381,8 +381,17 @@ snapshot ("as of `<snapshot_date>`" + partial flag), monthly income/investment f
 snapshot, **logged** monthly expenses + trailing-3-mo average from `money_events` (filtered by
 `created_at` in USER_TIMEZONE month windows — **not** the free-text `occurred_at`), savings rate,
 investment rate, cash runway. **Never summed across currencies**; missing inputs → `null`
-(unavailable), never estimated. **Not stored yet:** per-account breakdown, FX, anything in 22b
-(monthly explanation, housing-fund linkage).
+(unavailable), never estimated. **Not stored yet:** per-account breakdown, FX, the `goals` numeric
+target (Phase 22b-2 financial-goal progress).
+
+**Monthly explanation read-model (Phase 22b-1, no schema):** `GET /financial_intelligence/monthly`
+(pure `compute_monthly()`) compares the **current vs previous local month** by currency: **logged**
+expenses (money_events by `created_at` in USER_TIMEZONE windows; previous only if ≥1 expense
+predates the current month, else unavailable — never implied 0), **logged** savings rate (income
+from the latest manual snapshot), manual-position change (cash − liabilities between the two latest
+manual snapshots, if ≥2), and portfolio `total_value` change (between the two latest portfolio
+snapshots, if ≥2, with snapshot dates + partial flag). Deterministic `explanation[]` strings only —
+never AI, never cross-currency summed, missing → unavailable.
 
 ---
 

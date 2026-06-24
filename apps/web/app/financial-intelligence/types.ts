@@ -29,3 +29,32 @@ export interface FinancialSummary {
   manual_as_of: string | null;
   has_manual_snapshot: boolean;
 }
+
+export interface MonthlyCurrencyBlock {
+  currency: string;
+  logged_expenses: { current: number | null; previous: number | null; delta: number | null };
+  savings_rate: { current: number | null; previous: number | null; delta: number | null };
+  manual_position_change: {
+    from: number | null;
+    to: number | null;
+    delta: number | null;
+    from_as_of: string | null;
+    to_as_of: string | null;
+  } | null;
+  portfolio_change: {
+    from: number | null;
+    to: number | null;
+    delta: number | null;
+    from_date: string;
+    to_date: string;
+    partial: boolean;
+  } | null;
+  explanation: string[];
+}
+
+export interface MonthlyExplanation {
+  month: string;
+  prev_month: string;
+  has_previous_month: boolean;
+  currencies: MonthlyCurrencyBlock[];
+}

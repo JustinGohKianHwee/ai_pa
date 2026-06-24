@@ -1,14 +1,14 @@
-import type { CurrencyBlock, FinancialSummary } from "./types";
+import type { CurrencyBlock, FinancialSummary, MonthlyExplanation } from "./types";
 import { authedFetch } from "@/lib/api";
-import { PageContainer, PageHeader, EmptyState, Badge } from "@/components/ui";
+import { PageContainer, PageHeader, EmptyState, Badge, SectionLabel } from "@/components/ui";
 import { fmtMoney, fmtNum } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-async function getSummary(): Promise<FinancialSummary | null> {
+async function getJson<T>(path: string): Promise<T | null> {
   try {
-    const res = await authedFetch("/financial_intelligence/summary", { cache: "no-store" });
-    return res.ok ? ((await res.json()) as FinancialSummary) : null;
+    const res = await authedFetch(path, { cache: "no-store" });
+    return res.ok ? ((await res.json()) as T) : null;
   } catch (e) {
     const digest = (e as { digest?: string })?.digest;
     if (typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")) throw e;
@@ -81,8 +81,41 @@ function CurrencyCard({ b, portfolioAsOf }: { b: CurrencyBlock; portfolioAsOf: s
   );
 }
 
+function MonthlySection({ monthly }: { monthly: MonthlyExplanation }) {
+  return (
+    <section className="mt-8">
+      <SectionLabel>This month · {monthly.month}</SectionLabel>
+      {monthly.currencies.length === 0 ? (
+        <EmptyState>No logged activity this month yet.</EmptyState>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {monthly.currencies.map((b) => (
+            <div key={b.currency} className="rounded-xl border border-border bg-surface p-5">
+              <span className="text-xs font-medium uppercase tracking-wider text-faint">
+                {b.currency}
+              </span>
+              <ul className="mt-2 space-y-1.5 text-sm text-muted">
+                {b.explanation.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="mt-3 text-xs text-faint">
+        Deterministic, by currency. &ldquo;Logged&rdquo; figures reflect confirmed expense records
+        only (no bank auto-pull). Unavailable items are shown as such, never estimated.
+      </p>
+    </section>
+  );
+}
+
 export default async function FinancialIntelligencePage() {
-  const data = await getSummary();
+  const [data, monthly] = await Promise.all([
+    getJson<FinancialSummary>("/financial_intelligence/summary"),
+    getJson<MonthlyExplanation>("/financial_intelligence/monthly"),
+  ]);
 
   if (data === null) {
     return (
@@ -126,6 +159,8 @@ export default async function FinancialIntelligencePage() {
         &ldquo;Logged&rdquo; expenses reflect confirmed expense records only — not auto-pulled bank
         data. No advice; no estimated numbers.
       </p>
+
+      {monthly ? <MonthlySection monthly={monthly} /> : null}
     </PageContainer>
   );
 }

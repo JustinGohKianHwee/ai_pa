@@ -348,7 +348,13 @@ Expected response:
   liabilities/income/logged-expenses/savings/investment/runway, by currency, missing→unavailable).
   Monthly-expense windows use `money_events.created_at` with USER_TIMEZONE month boundaries. No
   cross-currency total, no AI numbers, no advice. Manual setup: apply `0017`
-  (replace `<OWNER_USER_ID>`). Monthly explanation + housing-fund are deferred to 22b.
+  (replace `<OWNER_USER_ID>`).
+- Phase 22b-1: Monthly explanation, `GET /financial_intelligence/monthly` (pure `compute_monthly()`),
+  no migration. Per-currency current-vs-previous-month logged expenses + Δ, logged savings rate + Δ,
+  manual-position change (≥2 manual snapshots), portfolio total_value change (≥2 portfolio
+  snapshots, labeled with dates + partial), deterministic explanation strings. Previous month only
+  if ≥1 expense predates the current month. A "This month" section on `/financial-intelligence`.
+  Financial-goal progress (22b-2) is still deferred.
 - Phase 21: Decision Journal, migration `0016_decisions.sql` (`decisions` table +
   `confirm_decision_item` RPC writing one `memory_events` row, widened `inbox_items.item_type` for
   `decision`, RLS, default-filled `owner_id`). `app/routes/decisions.py` (`GET /decisions`,
