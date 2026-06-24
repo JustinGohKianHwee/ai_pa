@@ -758,11 +758,23 @@ numbers, no advice; double-count guard (manual cash = non-broker; broker cash fr
 **Manual prerequisite:** apply `0017` (replace `<OWNER_USER_ID>`). UI labels expense-derived
 metrics "logged … (confirmed expense records only)" since bank auto-pull is not implemented.
 
-### Phase 22b — Financial Intelligence: monthly explanation + housing-fund (deferred) — *feature 6 cont.*
-Deterministic month-over-month explanation (`GET /financial_intelligence/monthly` — Δ net worth
-from snapshots, Δ logged spend, savings rate; no AI calculations) and housing-fund progress linked
-to a `goal` (`GET /financial_intelligence/housing-goal`; first explicit goal linkage, broader
-attribution stays Phase 25). Not built yet.
+### Phase 22b-1 — Financial Intelligence: monthly explanation — *feature 6 cont.*
+Deterministic per-currency month-over-month explanation (`GET /financial_intelligence/monthly`).
+Built on its own branch (`phase-22b1-monthly-explanation`); merged separately.
+
+### Phase 22b-2 — Financial goal progress v1 ✓ implementation complete (migration/manual verification pending) — *feature 6 cont.*
+Minimal, deterministic, per-currency financial-goal progress. Migration `0018_goal_financial_target.sql`
+adds `goals.target_value` / `target_currency` / `target_metric`
+(`net_worth`|`liquid_cash`|`invested`|`broker_total`, default net_worth) and `CREATE OR REPLACE
+confirm_goal_item` to persist them (preserving the Phase 20 memory-event write). A goal is a
+**financial goal** iff `target_value` + `target_currency` are set; the classifier extracts a numeric
+money target ("save 100000 SGD for BTO" → `target_value`/`target_currency`). `GET
+/financial_intelligence/financial-goals` returns per-goal `progress_pct = base_value / target_value`
+where `base_value` is the chosen `target_metric` in the goal's currency (reusing `compute_summary`);
+**by currency, no FX, no cross-currency**; missing base → unavailable. A "Financial goals" section on
+`/financial-intelligence` (progress bars + a "no funds earmarked / no attribution in v1" caveat).
+**No attribution, no activity linking, no projections.** Broad attribution stays Phase 25. 496
+backend tests pass; frontend clean. **Manual prerequisite:** apply `0018`.
 
 ### Phase 23 — Notes / journal + lifestyle check-ins — *existing journal + feature 7 (lightweight)*
 Free-form notes/journal (capture → confirm, searchable) **plus** an optional structured daily

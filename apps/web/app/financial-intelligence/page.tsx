@@ -1,19 +1,72 @@
-import type { CurrencyBlock, FinancialSummary } from "./types";
+import type {
+  CurrencyBlock,
+  FinancialSummary,
+  FinancialGoalProgress,
+  FinancialGoalsResponse,
+} from "./types";
 import { authedFetch } from "@/lib/api";
-import { PageContainer, PageHeader, EmptyState, Badge } from "@/components/ui";
+import { PageContainer, PageHeader, EmptyState, Badge, SectionLabel } from "@/components/ui";
 import { fmtMoney, fmtNum } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-async function getSummary(): Promise<FinancialSummary | null> {
+async function getJson<T>(path: string): Promise<T | null> {
   try {
-    const res = await authedFetch("/financial_intelligence/summary", { cache: "no-store" });
-    return res.ok ? ((await res.json()) as FinancialSummary) : null;
+    const res = await authedFetch(path, { cache: "no-store" });
+    return res.ok ? ((await res.json()) as T) : null;
   } catch (e) {
     const digest = (e as { digest?: string })?.digest;
     if (typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")) throw e;
     return null;
   }
+}
+
+const METRIC_LABEL: Record<string, string> = {
+  net_worth: "net worth",
+  liquid_cash: "liquid cash",
+  invested: "invested",
+  broker_total: "portfolio total",
+};
+
+function FinancialGoalsSection({ goals }: { goals: FinancialGoalProgress[] }) {
+  if (goals.length === 0) return null;
+  return (
+    <section className="mt-8">
+      <SectionLabel>Financial goals</SectionLabel>
+      <div className="space-y-2">
+        {goals.map((g) => {
+          const pct = g.progress_pct;
+          const clamped = pct === null ? 0 : Math.max(0, Math.min(1, pct));
+          return (
+            <div key={g.id} className="rounded-xl border border-border bg-surface p-4">
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-medium text-fg">{g.title}</p>
+                <Badge tone={g.status === "active" ? "info" : "neutral"} dot={false}>
+                  {g.status}
+                </Badge>
+              </div>
+              <p className="numeric mt-1 text-sm text-muted">
+                {g.base_value === null ? "—" : fmtMoney(g.base_value, g.target_currency)} /{" "}
+                {fmtMoney(g.target_value, g.target_currency)}
+                {pct !== null ? ` · ${(pct * 100).toFixed(0)}%` : " · progress unavailable"}
+              </p>
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-raised">
+                <div
+                  className="h-full rounded-full bg-accent"
+                  style={{ width: `${clamped * 100}%` }}
+                  aria-hidden
+                />
+              </div>
+              <p className="mt-1.5 text-xs text-faint">
+                vs your {g.target_currency} {METRIC_LABEL[g.target_metric] ?? g.target_metric} — no
+                funds are specifically earmarked (no attribution in v1).
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function pct(v: number | null): string {
@@ -82,7 +135,10 @@ function CurrencyCard({ b, portfolioAsOf }: { b: CurrencyBlock; portfolioAsOf: s
 }
 
 export default async function FinancialIntelligencePage() {
-  const data = await getSummary();
+  const [data, goals] = await Promise.all([
+    getJson<FinancialSummary>("/financial_intelligence/summary"),
+    getJson<FinancialGoalsResponse>("/financial_intelligence/financial-goals"),
+  ]);
 
   if (data === null) {
     return (
@@ -126,6 +182,8 @@ export default async function FinancialIntelligencePage() {
         &ldquo;Logged&rdquo; expenses reflect confirmed expense records only — not auto-pulled bank
         data. No advice; no estimated numbers.
       </p>
+
+      {goals ? <FinancialGoalsSection goals={goals.items} /> : null}
     </PageContainer>
   );
 }

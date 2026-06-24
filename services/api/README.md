@@ -348,7 +348,13 @@ Expected response:
   liabilities/income/logged-expenses/savings/investment/runway, by currency, missing→unavailable).
   Monthly-expense windows use `money_events.created_at` with USER_TIMEZONE month boundaries. No
   cross-currency total, no AI numbers, no advice. Manual setup: apply `0017`
-  (replace `<OWNER_USER_ID>`). Monthly explanation + housing-fund are deferred to 22b.
+  (replace `<OWNER_USER_ID>`).
+- Phase 22b-2: Financial goal progress v1, migration `0018_goal_financial_target.sql` (adds
+  `goals.target_value`/`target_currency`/`target_metric` + `CREATE OR REPLACE confirm_goal_item`).
+  `GET /financial_intelligence/financial-goals` → per-goal `progress_pct = base_value/target_value`
+  (base = chosen `target_metric` in the goal's currency, via `compute_summary`), by currency, no FX,
+  missing→unavailable. No attribution/projections. Manual setup: apply `0018`. (Monthly explanation
+  is Phase 22b-1, a separate branch/merge.)
 - Phase 21: Decision Journal, migration `0016_decisions.sql` (`decisions` table +
   `confirm_decision_item` RPC writing one `memory_events` row, widened `inbox_items.item_type` for
   `decision`, RLS, default-filled `owner_id`). `app/routes/decisions.py` (`GET /decisions`,

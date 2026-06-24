@@ -74,16 +74,11 @@ def _expenses_by_currency(client, owner_id: str, start_utc: str, end_utc: str) -
     return {k: float(v) for k, v in buckets.items()}
 
 
-@router.get("/summary", response_model=FinancialIntelligenceSummary)
-def get_summary(owner_id: str = Depends(require_user)) -> FinancialIntelligenceSummary:
-    try:
-        client = get_supabase_client()
-    except SupabaseConfigurationError as exc:
-        raise HTTPException(status_code=500, detail=f"Database configuration error: {exc}")
-
+def _load_summary(client, owner_id: str) -> tuple[dict, dict | None, dict | None]:
+    """Fetch inputs + run compute_summary. Returns (summary, snapshot_meta, manual_row).
+    Raises HTTPException(503) on query failure."""
     tz = ZoneInfo(os.getenv("USER_TIMEZONE", "UTC"))
     trailing_start, cur_start, next_start = _month_starts(tz)
-
     try:
         manual_res = (
             client.table("manual_financial_snapshots")
@@ -112,24 +107,117 @@ def get_summary(owner_id: str = Depends(require_user)) -> FinancialIntelligenceS
         raise HTTPException(status_code=503, detail="Database query failed") from exc
 
     manual = manual_res.data[0] if manual_res.data else None
-
+    snap_meta = None
     portfolio_totals: list[dict] = []
-    portfolio_as_of = None
-    portfolio_partial = None
     if snap_res.data:
         snap = snap_res.data[0]
-        portfolio_as_of = str(snap["snapshot_date"])
-        portfolio_partial = bool(snap["partial_failure"])
+        snap_meta = {
+            "as_of": str(snap["snapshot_date"]),
+            "partial": bool(snap["partial_failure"]),
+        }
         portfolio_totals = snap.get("portfolio_snapshot_currency_totals") or []
 
     trailing_avg = {c: v / 3 for c, v in trailing_total.items()}
-
     summary = compute_summary(manual, portfolio_totals, current_month, trailing_avg)
+    return summary, snap_meta, manual
+
+
+@router.get("/summary", response_model=FinancialIntelligenceSummary)
+def get_summary(owner_id: str = Depends(require_user)) -> FinancialIntelligenceSummary:
+    try:
+        client = get_supabase_client()
+    except SupabaseConfigurationError as exc:
+        raise HTTPException(status_code=500, detail=f"Database configuration error: {exc}")
+
+    summary, snap_meta, manual = _load_summary(client, owner_id)
 
     return FinancialIntelligenceSummary(
         currencies=summary["currencies"],
-        portfolio_as_of=portfolio_as_of,
-        portfolio_partial=portfolio_partial,
+        portfolio_as_of=snap_meta["as_of"] if snap_meta else None,
+        portfolio_partial=snap_meta["partial"] if snap_meta else None,
         manual_as_of=(manual.get("as_of") or manual.get("created_at")) if manual else None,
         has_manual_snapshot=manual is not None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Financial goal progress v1 (Phase 22b-2)
+# ---------------------------------------------------------------------------
+
+_DEFAULT_METRIC = "net_worth"
+
+
+class FinancialGoalProgress(BaseModel):
+    id: str
+    title: str
+    target_value: float
+    target_currency: str
+    target_metric: str
+    base_value: float | None        # the chosen metric in target_currency, or None if unavailable
+    progress_pct: float | None      # base_value / target_value, or None if base unavailable
+    status: str
+
+
+class FinancialGoalsResponse(BaseModel):
+    items: list[FinancialGoalProgress]
+    portfolio_as_of: str | None = None
+    portfolio_partial: bool | None = None
+
+
+def _base_value(block: dict | None, metric: str) -> float | None:
+    """Pull the chosen deterministic base from a per-currency summary block."""
+    if block is None:
+        return None
+    if metric == "net_worth":
+        return block.get("net_worth", {}).get("value")
+    return block.get(metric)  # liquid_cash | invested | broker_total
+
+
+@router.get("/financial-goals", response_model=FinancialGoalsResponse)
+def get_financial_goals(owner_id: str = Depends(require_user)) -> FinancialGoalsResponse:
+    try:
+        client = get_supabase_client()
+    except SupabaseConfigurationError as exc:
+        raise HTTPException(status_code=500, detail=f"Database configuration error: {exc}")
+
+    summary, snap_meta, _ = _load_summary(client, owner_id)
+    blocks = {b["currency"]: b for b in summary["currencies"]}
+
+    try:
+        goals_res = (
+            client.table("goals")
+            .select("id,title,status,target_value,target_currency,target_metric")
+            .eq("owner_id", owner_id)
+            .not_.is_("target_value", "null")
+            .not_.is_("target_currency", "null")
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    items: list[FinancialGoalProgress] = []
+    for g in goals_res.data or []:
+        ccy = str(g["target_currency"]).strip().upper()
+        metric = g.get("target_metric") or _DEFAULT_METRIC
+        target = float(g["target_value"])
+        base = _base_value(blocks.get(ccy), metric)
+        progress = (base / target) if base is not None and target > 0 else None
+        items.append(
+            FinancialGoalProgress(
+                id=g["id"],
+                title=g["title"],
+                target_value=target,
+                target_currency=ccy,
+                target_metric=metric,
+                base_value=base,
+                progress_pct=round(progress, 4) if progress is not None else None,
+                status=g["status"],
+            )
+        )
+
+    return FinancialGoalsResponse(
+        items=items,
+        portfolio_as_of=snap_meta["as_of"] if snap_meta else None,
+        portfolio_partial=snap_meta["partial"] if snap_meta else None,
     )
