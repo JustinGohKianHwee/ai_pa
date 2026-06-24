@@ -798,7 +798,10 @@ continuously; this is the dedicated gate.)
 pgvector + `memory_chunks`; embed **summaries + high-importance `memory_events`** (not every
 raw row); `POST /memory/search` + a dashboard search bar. Memory **importance scoring** (feature
 8) is implemented here, where retrieval exists to make it meaningful. Built only now, on real
-accumulated data.
+accumulated data. **Design grounding:** see the research report
+[`docs/research/llm-memory-architecture.md`](research/llm-memory-architecture.md) (Postgres =
+source of truth; embeddings = recall index; provenance + validity/supersession metadata;
+deterministic-first finance; the `memory_chunks` schema sketch and "Do Not Build Yet" list).
 
 ### Phase 28 — LLM assistant / recommendations
 A retrieval-grounded assistant over your memory — ask questions across months of data, get
