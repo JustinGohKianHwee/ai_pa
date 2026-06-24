@@ -783,15 +783,16 @@ where `base_value` is the chosen `target_metric` in the goal's currency (reusing
 **No attribution, no activity linking, no projections.** Broad attribution stays Phase 25. 496
 backend tests pass; frontend clean. **Manual prerequisite:** apply `0018`.
 
-### Phase 22c — Expense categories & monthly category summaries (next; deterministic finance-data-quality)
+### Phase 22c — Expense categories & monthly category summaries ✓ implementation complete (manual verification pending; deterministic finance-data-quality)
 Deterministic, **review-first, migration-free** finance-data-quality slice that strengthens later
 summaries/memory (per the post-22b review). Reuses the existing `money_events.category` (set by the
 classifier and editable in the inbox before confirm — no post-confirm mutation, no new schema).
-Adds a **monthly category breakdown**: `GET /financial_intelligence/category-summary` returning, for
-the current local month (USER_TIMEZONE + `created_at` windows, mirroring 22a/22b-1), confirmed
-expenses grouped **by currency → category** with totals; a "This month by category" section on
-`/finance` (and/or `/financial-intelligence`). **By currency, never cross-currency summed; logged
-(confirmed) expenses only; no AI numbers, no advice.** Grounding:
+`GET /financial_intelligence/category-summary` returns, for the current local month (USER_TIMEZONE +
+`created_at` windows, mirroring 22a/22b-1), confirmed expenses grouped **by currency → category**
+(Decimal sums, ordered by amount desc, null → "uncategorized") with per-currency totals; a "This
+month by category" section on `/financial-intelligence`. **By currency, never cross-currency summed;
+logged (confirmed) expenses only; no AI numbers, no advice; no new migration.** 513 backend tests
+pass; frontend clean. Grounding:
 `docs/plans/roadmap-review-after-22b-memory-findings.md` §10 and `docs/plans/memory-grounded-phase-plan.md`.
 
 ### Phase 22d — Statement import & verification (deferred, planned — NOT built)

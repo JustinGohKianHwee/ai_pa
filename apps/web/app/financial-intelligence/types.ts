@@ -75,3 +75,19 @@ export interface FinancialGoalsResponse {
   portfolio_as_of: string | null;
   portfolio_partial: boolean | null;
 }
+
+export interface CategoryTotal {
+  category: string;
+  amount: number;
+}
+
+export interface CurrencyCategoryTotals {
+  currency: string;
+  total: number;
+  by_category: CategoryTotal[];
+}
+
+export interface CategorySummary {
+  month: string;
+  currencies: CurrencyCategoryTotals[];
+}

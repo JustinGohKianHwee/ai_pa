@@ -400,6 +400,12 @@ manual snapshots, if ≥2), and portfolio `total_value` change (between the two 
 snapshots, if ≥2, with snapshot dates + partial flag). Deterministic `explanation[]` strings only —
 never AI, never cross-currency summed, missing → unavailable.
 
+**Category summary read-model (Phase 22c, no schema):** `GET /financial_intelligence/category-summary`
+groups the current local month's confirmed **expense** `money_events` by **currency → category**
+(reusing the existing `money_events.category`; null → "uncategorized"; Decimal sums ordered by amount
+desc) with per-currency totals. By currency, never cross-currency summed; logged/confirmed expenses
+only; no new table.
+
 ---
 
 ### Portfolio data — Phase 14 (external, read-only)

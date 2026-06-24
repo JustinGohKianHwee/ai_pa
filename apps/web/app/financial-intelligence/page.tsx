@@ -4,6 +4,7 @@ import type {
   MonthlyExplanation,
   FinancialGoalProgress,
   FinancialGoalsResponse,
+  CategorySummary,
 } from "./types";
 import { authedFetch } from "@/lib/api";
 import { PageContainer, PageHeader, EmptyState, Badge, SectionLabel } from "@/components/ui";
@@ -165,11 +166,44 @@ function MonthlySection({ monthly }: { monthly: MonthlyExplanation }) {
   );
 }
 
+function CategorySummarySection({ summary }: { summary: CategorySummary }) {
+  if (summary.currencies.length === 0) return null;
+  return (
+    <section className="mt-8">
+      <SectionLabel>This month by category · {summary.month}</SectionLabel>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {summary.currencies.map((c) => (
+          <div key={c.currency} className="rounded-xl border border-border bg-surface p-5">
+            <div className="flex items-baseline justify-between">
+              <span className="text-xs font-medium uppercase tracking-wider text-faint">
+                {c.currency}
+              </span>
+              <span className="numeric text-sm font-medium text-fg">{fmtMoney(c.total, c.currency)}</span>
+            </div>
+            <div className="mt-3 space-y-1.5">
+              {c.by_category.map((cat) => (
+                <div key={cat.category} className="flex items-baseline justify-between text-sm">
+                  <span className="text-muted">{cat.category}</span>
+                  <span className="numeric text-fg">{fmtMoney(cat.amount, c.currency)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-faint">
+        Logged (confirmed) expenses only, by currency — never summed across currencies.
+      </p>
+    </section>
+  );
+}
+
 export default async function FinancialIntelligencePage() {
-  const [data, monthly, goals] = await Promise.all([
+  const [data, monthly, goals, categories] = await Promise.all([
     getJson<FinancialSummary>("/financial_intelligence/summary"),
     getJson<MonthlyExplanation>("/financial_intelligence/monthly"),
     getJson<FinancialGoalsResponse>("/financial_intelligence/financial-goals"),
+    getJson<CategorySummary>("/financial_intelligence/category-summary"),
   ]);
 
   if (data === null) {
@@ -216,6 +250,7 @@ export default async function FinancialIntelligencePage() {
       </p>
 
       {goals ? <FinancialGoalsSection goals={goals.items} /> : null}
+      {categories ? <CategorySummarySection summary={categories} /> : null}
       {monthly ? <MonthlySection monthly={monthly} /> : null}
     </PageContainer>
   );

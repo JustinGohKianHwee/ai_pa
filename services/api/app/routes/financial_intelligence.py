@@ -51,6 +51,22 @@ class MonthlyExplanation(BaseModel):
     currencies: list[dict]
 
 
+class CategoryTotal(BaseModel):
+    category: str
+    amount: float
+
+
+class CurrencyCategoryTotals(BaseModel):
+    currency: str
+    total: float
+    by_category: list[CategoryTotal]
+
+
+class CategorySummaryResponse(BaseModel):
+    month: str
+    currencies: list[CurrencyCategoryTotals]
+
+
 def _month_starts(tz: ZoneInfo) -> tuple[str, str, str]:
     """Return (trailing_start_utc, current_month_start_utc, next_month_start_utc) as ISO."""
     today = datetime.now(tz).date()
@@ -276,6 +292,61 @@ def _base_value(block: dict | None, metric: str) -> float | None:
     if metric == "net_worth":
         return block.get("net_worth", {}).get("value")
     return block.get(metric)  # liquid_cash | invested | broker_total
+
+
+@router.get("/category-summary", response_model=CategorySummaryResponse)
+def get_category_summary(owner_id: str = Depends(require_user)) -> CategorySummaryResponse:
+    """Phase 22c — current local month's confirmed expenses grouped by currency → category.
+    Deterministic, logged (confirmed) expenses only; never summed across currencies. No new schema —
+    reuses money_events.category (set at review time)."""
+    try:
+        client = get_supabase_client()
+    except SupabaseConfigurationError as exc:
+        raise HTTPException(status_code=500, detail=f"Database configuration error: {exc}")
+
+    tz = ZoneInfo(os.getenv("USER_TIMEZONE", "UTC"))
+    _prev, cur_start, next_start, month_label, _prev_label = _month_windows(tz)
+
+    try:
+        result = (
+            client.table("money_events")
+            .select("amount,currency,category")
+            .eq("owner_id", owner_id)
+            .eq("direction", "expense")
+            .gte("created_at", cur_start)
+            .lt("created_at", next_start)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    # currency -> category -> Decimal
+    buckets: dict[str, dict[str, Decimal]] = {}
+    for row in result.data or []:
+        ccy = str(row.get("currency", "")).strip().upper()
+        if not ccy:
+            continue
+        cat = (row.get("category") or "uncategorized").strip() or "uncategorized"
+        buckets.setdefault(ccy, {})
+        buckets[ccy][cat] = buckets[ccy].get(cat, Decimal("0")) + Decimal(str(row["amount"]))
+
+    cents = Decimal("0.01")
+    currencies = []
+    for ccy in sorted(buckets):
+        by_cat = buckets[ccy]
+        total = sum(by_cat.values(), Decimal("0")).quantize(cents)
+        currencies.append(
+            CurrencyCategoryTotals(
+                currency=ccy,
+                total=float(total),
+                by_category=[
+                    CategoryTotal(category=c, amount=float(a.quantize(cents)))
+                    for c, a in sorted(by_cat.items(), key=lambda kv: kv[1], reverse=True)
+                ],
+            )
+        )
+
+    return CategorySummaryResponse(month=month_label, currencies=currencies)
 
 
 @router.get("/financial-goals", response_model=FinancialGoalsResponse)

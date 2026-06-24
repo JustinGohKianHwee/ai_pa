@@ -359,6 +359,11 @@ Expected response:
   `GET /financial_intelligence/financial-goals` → per-goal `progress_pct = base_value/target_value`
   (base = chosen `target_metric` in the goal's currency, via `compute_summary`), by currency, no FX,
   missing→unavailable. No attribution/projections. Manual setup: apply `0018`.
+- Phase 22c: Expense categories & monthly category summaries, **no migration** (reuses
+  `money_events.category`). `GET /financial_intelligence/category-summary` → current local month's
+  confirmed expenses grouped by currency → category (Decimal, ordered by amount desc, null →
+  "uncategorized") + per-currency totals; "This month by category" section on
+  `/financial-intelligence`. By currency, never cross-currency summed; logged expenses only.
 - Phase 21: Decision Journal, migration `0016_decisions.sql` (`decisions` table +
   `confirm_decision_item` RPC writing one `memory_events` row, widened `inbox_items.item_type` for
   `decision`, RLS, default-filled `owner_id`). `app/routes/decisions.py` (`GET /decisions`,

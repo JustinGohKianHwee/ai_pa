@@ -521,3 +521,80 @@ def test_financial_goals_unavailable_when_currency_absent():
     item = res.json()["items"][0]
     assert item["base_value"] is None
     assert item["progress_pct"] is None
+
+
+# ===========================================================================
+# Phase 22c — monthly expense category summary
+# ===========================================================================
+
+
+def _category_mock(rows):
+    """money_events expense query for the current month: select.eq.eq.gte.lt.execute"""
+    c = MagicMock()
+    tbl = MagicMock()
+    tbl.select.return_value.eq.return_value.eq.return_value.gte.return_value.lt.return_value.execute.return_value = MagicMock(
+        data=rows
+    )
+    c.table.return_value = tbl
+    return c
+
+
+def test_category_summary_auth_missing_401():
+    assert client.get("/financial_intelligence/category-summary").status_code == 401
+
+
+def test_category_summary_auth_non_owner_403():
+    token = mint_test_token(sub="00000000-0000-0000-0000-0000000000ff")
+    assert client.get(
+        "/financial_intelligence/category-summary", headers={"Authorization": f"Bearer {token}"}
+    ).status_code == 403
+
+
+def test_category_summary_empty():
+    mock = _category_mock([])
+    with patch("app.routes.financial_intelligence.get_supabase_client", return_value=mock):
+        res = client.get("/financial_intelligence/category-summary", headers=_auth())
+    assert res.status_code == 200
+    assert res.json()["currencies"] == []
+
+
+def test_category_summary_groups_by_currency_then_category():
+    rows = [
+        {"amount": 12.50, "currency": "SGD", "category": "food"},
+        {"amount": 7.50, "currency": "SGD", "category": "food"},
+        {"amount": 30, "currency": "SGD", "category": "transport"},
+        {"amount": 100, "currency": "USD", "category": "subscriptions"},
+        {"amount": 5, "currency": "SGD", "category": None},  # → uncategorized
+    ]
+    mock = _category_mock(rows)
+    with patch("app.routes.financial_intelligence.get_supabase_client", return_value=mock):
+        res = client.get("/financial_intelligence/category-summary", headers=_auth())
+    body = res.json()
+    ccys = {c["currency"]: c for c in body["currencies"]}
+    assert set(ccys) == {"SGD", "USD"}
+    # SGD total = 12.50 + 7.50 + 30 + 5 = 55.00 ; never mixed with USD
+    assert ccys["SGD"]["total"] == 55.0
+    assert ccys["USD"]["total"] == 100.0
+    sgd_cats = {c["category"]: c["amount"] for c in ccys["SGD"]["by_category"]}
+    assert sgd_cats["food"] == 20.0
+    assert sgd_cats["transport"] == 30.0
+    assert sgd_cats["uncategorized"] == 5.0
+    # ordered by amount desc → food (20) before transport (30)? transport is larger → first
+    assert ccys["SGD"]["by_category"][0]["category"] == "transport"
+
+
+def test_category_summary_db_config_error_500():
+    with patch(
+        "app.routes.financial_intelligence.get_supabase_client",
+        side_effect=SupabaseConfigurationError("missing key"),
+    ):
+        assert client.get("/financial_intelligence/category-summary", headers=_auth()).status_code == 500
+
+
+def test_category_summary_query_failure_503():
+    c = MagicMock()
+    tbl = MagicMock()
+    tbl.select.return_value.eq.return_value.eq.return_value.gte.return_value.lt.return_value.execute.side_effect = Exception("boom")
+    c.table.return_value = tbl
+    with patch("app.routes.financial_intelligence.get_supabase_client", return_value=c):
+        assert client.get("/financial_intelligence/category-summary", headers=_auth()).status_code == 503
