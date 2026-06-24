@@ -783,6 +783,24 @@ where `base_value` is the chosen `target_metric` in the goal's currency (reusing
 **No attribution, no activity linking, no projections.** Broad attribution stays Phase 25. 496
 backend tests pass; frontend clean. **Manual prerequisite:** apply `0018`.
 
+### Phase 22c — Expense categories & monthly category summaries (next; deterministic finance-data-quality)
+Deterministic, **review-first, migration-free** finance-data-quality slice that strengthens later
+summaries/memory (per the post-22b review). Reuses the existing `money_events.category` (set by the
+classifier and editable in the inbox before confirm — no post-confirm mutation, no new schema).
+Adds a **monthly category breakdown**: `GET /financial_intelligence/category-summary` returning, for
+the current local month (USER_TIMEZONE + `created_at` windows, mirroring 22a/22b-1), confirmed
+expenses grouped **by currency → category** with totals; a "This month by category" section on
+`/finance` (and/or `/financial-intelligence`). **By currency, never cross-currency summed; logged
+(confirmed) expenses only; no AI numbers, no advice.** Grounding:
+`docs/plans/roadmap-review-after-22b-memory-findings.md` §10 and `docs/plans/memory-grounded-phase-plan.md`.
+
+### Phase 22d — Statement import & verification (deferred, planned — NOT built)
+Larger deterministic finance-data-quality effort, kept **review-first**: bank/card **statement
+import → staging table → match staged rows to `money_events` → review-before-confirm** (no
+auto-confirm, no auto-categorize). Deferred because file parsing (CSV/PDF) + fuzzy matching + a
+staging/review UX is a substantial build; sequence it after 22c if finance accuracy remains the
+priority, but it is **not** a memory prerequisite. High-level only here; no implementation plan yet.
+
 ### Phase 23 — Notes / journal + lifestyle check-ins — *existing journal + feature 7 (lightweight)*
 Free-form notes/journal (capture → confirm, searchable) **plus** an optional structured daily
 check-in (energy, mood, sleep, stress, activity) as a reflective log — explicitly **not** a
@@ -797,37 +815,56 @@ Summaries are derived from structured data, not free-form AI guesses. Add a null
 `importance` to `memory_events` here as retrieval prep. **Scheduled** delivery (Telegram push at
 ~7am) waits for an always-on backend; on-demand works now.
 
-### Phase 25 — Goal → activity attribution — *feature 4*
+### Phase 25 — Goal → activity attribution — *feature 4 (optional; may slip after 26)*
 Now that goals, finance intelligence, decisions, and real data exist: link records/metrics to
 goals and show **progress toward life goals** on the dashboard (e.g. housing-fund goal ←
 investments + savings + BTO milestones). Start with thin, explicit structured links; richer
-attribution can follow once vector memory lands.
+attribution can follow once vector memory lands. **Not a memory prerequisite** — may be reordered
+after Phase 26.
 
-### Phase 26 — Security review & hardening (risk register)
-Before embedding all life data and giving an LLM access, do a formal review: enumerate every
-risk with **severity (High / Medium / Low)** and **likelihood**, plus mitigation + owner.
-Cover at least: auth/session integrity, RLS + service-role blast radius, secret storage
-(Render / Supabase / Vercel) and 2FA status, the Tiger-key-kept-local decision, public
-endpoints (webhook/health) + rate limiting, dependency/supply-chain risk, backups & recovery,
-prompt-injection in the AI layer, and PII exposure. **Output:** a living `docs/security.md`
-risk register, with all High-severity items fixed before proceeding. (Security is revisited
-continuously; this is the dedicated gate.)
+> **Memory resequencing (post-22b review).** The old single "Vector memory" phase is split per
+> `docs/research/llm-memory-architecture.md` + `docs/plans/memory-grounded-phase-plan.md`: build the
+> deterministic, source-linked **`memory_items`** layer (26) **before** any embeddings, gate
+> embedding/LLM **egress** behind the **security review** (27), then add the **pgvector index** (28),
+> then the **assistant** (29). Postgres = source of truth; embeddings = index; LLM ≠ source of truth.
 
-### Phase 27 — Vector memory — *folds in feature 8*
-pgvector + `memory_chunks`; embed **summaries + high-importance `memory_events`** (not every
-raw row); `POST /memory/search` + a dashboard search bar. Memory **importance scoring** (feature
-8) is implemented here, where retrieval exists to make it meaningful. Built only now, on real
-accumulated data. **Design grounding:** see the research report
-[`docs/research/llm-memory-architecture.md`](research/llm-memory-architecture.md) (Postgres =
-source of truth; embeddings = recall index; provenance + validity/supersession metadata;
-deterministic-first finance; the `memory_chunks` schema sketch and "Do Not Build Yet" list).
+### Phase 26 — Memory foundation v1: `memory_items` (deterministic, source-linked, NO embeddings)
+Distill confirmed records + `memory_events` + summaries into a typed, source-linked,
+lifecycle-tracked `memory_items` table (curated layer above the raw `memory_events` log). Each item:
+`memory_type` (event/episodic/semantic/procedural/preference/goal), `source_table`/`source_id`,
+`confidence`, `importance`, `valid_from`/`valid_to`, `superseded_by`. **Extraction is
+deterministic/templated from confirmed records only** (no LLM writing truth, no embeddings, no
+egress → no security-gate dependency); procedural memory stays in prompts/code. Read-only
+`GET /memory_items` + a dashboard "Memory" view. **Out of scope:** embeddings, LLM distillation,
+autonomous writes, graph/KG. *(Plan: `docs/plans/memory-grounded-phase-plan.md` §Phase 26.)*
 
-### Phase 28 — LLM assistant / recommendations
+### Phase 27 — Security review & hardening (the egress gate; risk register)
+Before any personal data leaves the host for embeddings/LLM, do a formal review: every risk with
+**severity (High/Medium/Low)** + **likelihood** + mitigation + owner. Cover at least:
+auth/session integrity, RLS + service-role blast radius, secret storage (Render/Supabase/Vercel)
++ 2FA, the Tiger-key-kept-local decision, public endpoints (webhook/health) + rate limiting,
+dependency/supply-chain, backups & recovery, **prompt-injection** in the AI layer, and **PII /
+embedding-egress** (which provider, what data, retention). **Output:** a living `docs/security.md`
+risk register; all High items fixed **and an explicit written approval of what may be embedded /
+which provider may receive it** before Phase 28.
+
+### Phase 28 — Memory retrieval index — pgvector embeddings over `memory_items` + summaries — *folds in feature 8*
+pgvector index (`memory_embeddings` / HNSW) over **`memory_items` + summaries** (never raw rows);
+hybrid retrieval (deterministic SQL first for facts/numbers, ANN recall ranked
+recency×importance×relevance, Self-RAG-style adaptive + cite, resolve hits to the live source row,
+filter superseded/expired); `POST /memory/search` + dashboard search. Memory **importance scoring**
+(feature 8) lives here. A small **retrieval-quality eval** before trusting recall. Built only on
+real accumulated data, after 26 + 27. *(Design grounding:
+[`docs/research/llm-memory-architecture.md`](research/llm-memory-architecture.md).)*
+
+### Phase 29 — LLM assistant / recommendations
 A retrieval-grounded assistant over your memory — ask questions across months of data, get
-recommendations grounded in cited records. The payoff, and the most security-sensitive surface
-(hence the Phase 26 gate). Recommendations are advisory; any action still passes through review.
+recommendations grounded in **cited** records. **Finance numbers always come from deterministic
+queries**, never the LLM/vectors; any action is a **proposal** routed through inbox→review→confirm
+(the assistant never writes a domain record directly). The payoff, and the most security-sensitive
+surface (hence the Phase 27 gate). Advisory only.
 
-### Deferred / optional (revisit after Phase 27)
+### Deferred / optional (revisit after Phase 28)
 - **Relationship CRM** (feature 5) — contacts, last-contacted, follow-ups. A clean optional
   module; build if the need is felt, after the core spine.
 - **Life Events "threads"** (feature 2, de-scoped) — a lightweight `thread`/`project` tag on
