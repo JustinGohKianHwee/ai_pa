@@ -10,6 +10,7 @@ from app.db.supabase_client import SupabaseConfigurationError, get_supabase_clie
 from app.routes.calendar import CalendarIntentResponse
 from app.routes.decisions import DecisionResponse
 from app.routes.exercise import ExerciseLogResponse
+from app.routes.financial_snapshots import FinancialSnapshotResponse, _row_to_response
 from app.routes.finance import MoneyEventResponse
 from app.routes.food import FoodLogResponse
 from app.routes.goals import GoalResponse
@@ -105,6 +106,12 @@ class ConfirmDecisionResponse(BaseModel):
     """Returned when a decision-type item is confirmed: the inbox item plus its decision."""
     inbox_item: ReviewedItemResponse
     decision: DecisionResponse
+
+
+class ConfirmFinancialSnapshotResponse(BaseModel):
+    """Returned when a financial_snapshot item is confirmed: inbox item plus the snapshot."""
+    inbox_item: ReviewedItemResponse
+    financial_snapshot: FinancialSnapshotResponse
 
 
 class EditInboxItemRequest(BaseModel):
@@ -873,6 +880,93 @@ def _confirm_decision(client: Client, inbox_id: str, item: dict) -> ConfirmDecis
     )
 
 
+def _fetch_financial_snapshot(client: Client, inbox_id: str) -> Optional[dict]:
+    res = (
+        client.table("manual_financial_snapshots")
+        .select("*")
+        .eq("inbox_item_id", inbox_id)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def _recheck_financial_snapshot_confirm(
+    client: Client, inbox_id: str, original: dict
+) -> ConfirmFinancialSnapshotResponse:
+    """Financial-snapshot counterpart of _recheck_food_confirm (idempotent 200 / 409 / 503)."""
+    try:
+        item = _fetch_item(client, inbox_id)
+        snap = _fetch_financial_snapshot(client, inbox_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    if item is not None and snap is not None and item["review_status"] == "confirmed":
+        return ConfirmFinancialSnapshotResponse(
+            inbox_item=ReviewedItemResponse(**item),
+            financial_snapshot=_row_to_response(snap),
+        )
+
+    if (
+        item is None
+        or item["review_status"] != original["review_status"]
+        or item["updated_at"] != original["updated_at"]
+    ):
+        raise HTTPException(
+            status_code=409, detail="Item was modified concurrently; confirm failed"
+        )
+
+    raise HTTPException(
+        status_code=503, detail="Financial snapshot confirmation database operation failed"
+    )
+
+
+def _confirm_financial_snapshot(
+    client: Client, inbox_id: str, item: dict
+) -> ConfirmFinancialSnapshotResponse:
+    """Phase 22a atomic confirmation for financial_snapshot items via the RPC."""
+    if item["review_status"] == "confirmed":
+        try:
+            existing = _fetch_financial_snapshot(client, inbox_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database query failed") from exc
+        if existing is not None:
+            return ConfirmFinancialSnapshotResponse(
+                inbox_item=ReviewedItemResponse(**item),
+                financial_snapshot=_row_to_response(existing),
+            )
+        raise HTTPException(
+            status_code=409,
+            detail="Item was confirmed before the financial-snapshot module existed; backfill is not supported.",
+        )
+
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot confirm item with review_status='{item['review_status']}'",
+        )
+
+    err, _normalized = _validate_structured_json("financial_snapshot", item["structured_json"])
+    if err:
+        raise HTTPException(status_code=400, detail=f"structured_json invalid: {err}")
+
+    try:
+        result = client.rpc(
+            "confirm_financial_snapshot_item",
+            {"p_inbox_id": inbox_id, "p_expected_updated_at": item["updated_at"]},
+        ).execute()
+    except Exception:
+        return _recheck_financial_snapshot_confirm(client, inbox_id, item)
+
+    data = result.data
+    if not data:
+        return _recheck_financial_snapshot_confirm(client, inbox_id, item)
+
+    return ConfirmFinancialSnapshotResponse(
+        inbox_item=ReviewedItemResponse(**data["inbox_item"]),
+        financial_snapshot=_row_to_response(data["financial_snapshot"]),
+    )
+
+
 @router.patch(
     "/{inbox_id}/confirm",
     dependencies=[Depends(require_user)],
@@ -880,7 +974,7 @@ def _confirm_decision(client: Client, inbox_id: str, item: dict) -> ConfirmDecis
 )
 def confirm_inbox_item(
     inbox_id: str,
-) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse | ConfirmExerciseResponse | ConfirmHabitResponse | ConfirmGoalResponse | ConfirmDecisionResponse:
+) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse | ConfirmExerciseResponse | ConfirmHabitResponse | ConfirmGoalResponse | ConfirmDecisionResponse | ConfirmFinancialSnapshotResponse:
     try:
         client = get_supabase_client()
     except SupabaseConfigurationError as exc:
@@ -927,6 +1021,10 @@ def confirm_inbox_item(
     # Phase 21: decision items confirm atomically and create a decision record.
     if item["item_type"] == "decision":
         return _confirm_decision(client, inbox_id, item)
+
+    # Phase 22a: financial_snapshot items confirm atomically and create a manual snapshot.
+    if item["item_type"] == "financial_snapshot":
+        return _confirm_financial_snapshot(client, inbox_id, item)
 
     # Non-module items keep the Phase 7 status-only confirmation (no domain record).
     if item["review_status"] == "confirmed":

@@ -135,6 +135,14 @@ def test_decision_is_accepted_domain():
     q.in_.assert_called_once_with("domain", ["decision"])
 
 
+def test_financial_snapshot_is_accepted_domain():
+    cm, q = _chain_mock([_row(1, domain="financial_snapshot")])
+    with patch("app.routes.timeline.get_supabase_client", return_value=cm):
+        res = client.get("/timeline?domains=financial_snapshot", headers=_auth())
+    assert res.status_code == 200
+    q.in_.assert_called_once_with("domain", ["financial_snapshot"])
+
+
 def test_date_filters_applied():
     cm, q = _chain_mock([_row(1)])
     with patch("app.routes.timeline.get_supabase_client", return_value=cm):

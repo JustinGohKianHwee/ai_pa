@@ -739,12 +739,30 @@ apply `0016` (replace `<OWNER_USER_ID>`). **Deferred (out of scope):** outcome-r
 (no placeholder column), `related_goal_id`/attribution (Phase 25), quality scoring, AI advice.
 High long-term moat; no automatic actions.
 
-### Phase 22 — Financial Intelligence Layer — *feature 6*
-Derived metrics over existing finance + portfolio + snapshots: net worth, savings rate,
-investment rate, cash runway, housing-fund progress, and a **deterministic** monthly explanation
-(AI phrasing optional, always derived from stored numbers). Requires a small **reviewed** manual
-input for balances/income (assets, liabilities, salary) — still through an explicit confirm step,
-never auto-pulled. No cross-currency summing without an approved FX source.
+### Phase 22a — Financial Intelligence Layer ✓ implementation complete (migration/manual verification pending) — *feature 6*
+Deterministic, per-currency metrics over existing data + a **reviewed manual financial snapshot**.
+Migration `0017_financial_snapshots.sql`: `manual_financial_snapshots` (immutable, JSONB
+`{currency,amount}` arrays for monthly_income / monthly_investment / liquid_cash[non-broker] /
+liabilities + as_of) via the review pipeline; `confirm_financial_snapshot_item` RPC (atomic +
+idempotent, one `memory_events` row); widens `inbox_items.item_type` for `financial_snapshot`;
+classifier `financial_snapshot` type + `FinancialSnapshotStructuredJson` (statement-vs-transaction
+disambiguation). Pure `compute_summary()` + `GET /financial_intelligence/summary` + `GET
+/financial_snapshots`: net worth (components + complete/missing flags), liquid cash, invested,
+liabilities, monthly income, **logged** monthly expenses (money_events by `created_at`/USER_TIMEZONE
+month windows — never the free-text occurred_at), **logged** savings rate, investment rate, cash
+runway (trailing-3-mo), portfolio-by-currency with "as of `<snapshot_date>`" + partial flag. All
+**by currency, never summed across**; missing inputs → **unavailable**, never estimated; no AI
+numbers, no advice; double-count guard (manual cash = non-broker; broker cash from snapshot).
+`/financial-intelligence` page + dashboard tiles (net worth / cash runway / savings rate) + NavRail
++ inbox read-out + timeline integration. 487 backend tests pass; frontend lint/tsc/build clean.
+**Manual prerequisite:** apply `0017` (replace `<OWNER_USER_ID>`). UI labels expense-derived
+metrics "logged … (confirmed expense records only)" since bank auto-pull is not implemented.
+
+### Phase 22b — Financial Intelligence: monthly explanation + housing-fund (deferred) — *feature 6 cont.*
+Deterministic month-over-month explanation (`GET /financial_intelligence/monthly` — Δ net worth
+from snapshots, Δ logged spend, savings rate; no AI calculations) and housing-fund progress linked
+to a `goal` (`GET /financial_intelligence/housing-goal`; first explicit goal linkage, broader
+attribution stays Phase 25). Not built yet.
 
 ### Phase 23 — Notes / journal + lifestyle check-ins — *existing journal + feature 7 (lightweight)*
 Free-form notes/journal (capture → confirm, searchable) **plus** an optional structured daily

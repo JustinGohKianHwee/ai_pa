@@ -12,6 +12,8 @@ from app.routes.daily_review import router as daily_review_router  # noqa: E402
 from app.routes.decisions import router as decisions_router  # noqa: E402
 from app.routes.exercise import router as exercise_router  # noqa: E402
 from app.routes.finance import router as finance_router  # noqa: E402
+from app.routes.financial_intelligence import router as financial_intelligence_router  # noqa: E402
+from app.routes.financial_snapshots import router as financial_snapshots_router  # noqa: E402
 from app.routes.food import router as food_router  # noqa: E402
 from app.routes.goals import router as goals_router  # noqa: E402
 from app.routes.habits import router as habits_router  # noqa: E402
@@ -43,6 +45,8 @@ app.include_router(exercise_router)
 app.include_router(habits_router)
 app.include_router(goals_router)
 app.include_router(decisions_router)
+app.include_router(financial_snapshots_router)
+app.include_router(financial_intelligence_router)
 app.include_router(calendar_router)
 app.include_router(daily_review_router)
 app.include_router(timeline_router)

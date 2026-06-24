@@ -356,6 +356,36 @@ stored yet (deferred):** observed/actual outcome, outcome-review fields, decisio
 
 ---
 
+### `manual_financial_snapshots` — Phase 22a (implemented, `supabase/migrations/0017_financial_snapshots.sql`)
+
+Reviewed manual financial inputs that feed the deterministic Financial Intelligence layer. One row
+per source `inbox_item` (UNIQUE `inbox_item_id`), written only by `confirm_financial_snapshot_item`
+(appends one `memory_events` row, `domain='financial_snapshot'`, payload `{as_of}`). **Immutable** —
+latest by `created_at` is "current"; update by capturing a new one (no status, no edit endpoint).
+
+**Columns:** `id`, `inbox_item_id` (UNIQUE FK), `owner_id` (default-filled, not null), `as_of`
+(**text**, verbatim, not parsed), `monthly_income_json` / `monthly_investment_json` /
+`liquid_cash_json` / `liabilities_json` (jsonb arrays of `{currency, amount}`, default `[]`, each
+CHECK `jsonb_typeof = 'array'` — Pydantic `FinancialSnapshotStructuredJson` is the real shape
+guard), `notes`, `created_at`. RLS deny-by-default; service-role only. Migration `0017` also widens
+`inbox_items.item_type` for `financial_snapshot`.
+
+> **`liquid_cash` is NON-broker cash** (bank/CPF). Broker cash + positions come from the portfolio
+> snapshot's `total_value`; keeping them separate avoids double counting in net worth.
+
+**Financial Intelligence metrics (read-only, deterministic — no table):** `GET
+/financial_intelligence/summary` assembles per-currency metrics via the pure `compute_summary()`
+(`app/services/financial_intelligence.py`): net worth = `liquid_cash + broker_total − liabilities`
+(present components only, with `complete`/`missing`), invested/broker from the latest portfolio
+snapshot ("as of `<snapshot_date>`" + partial flag), monthly income/investment from the manual
+snapshot, **logged** monthly expenses + trailing-3-mo average from `money_events` (filtered by
+`created_at` in USER_TIMEZONE month windows — **not** the free-text `occurred_at`), savings rate,
+investment rate, cash runway. **Never summed across currencies**; missing inputs → `null`
+(unavailable), never estimated. **Not stored yet:** per-account breakdown, FX, anything in 22b
+(monthly explanation, housing-fund linkage).
+
+---
+
 ### Portfolio data — Phase 14 (external, read-only)
 
 Phase 14 does not add an `investment_notes` or portfolio-positions table. Current positions,

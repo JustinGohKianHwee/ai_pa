@@ -15,6 +15,7 @@ const VALID_ITEM_TYPES = [
   "habit",
   "goal",
   "decision",
+  "financial_snapshot",
   "investment",
   "note",
   "journal",
@@ -103,6 +104,19 @@ export function InboxCard({ item }: { item: InboxItem }) {
           str(sj.category),
           typeof sj.confidence === "number" ? `confidence ${Math.round(sj.confidence * 100)}%` : null,
           str(sj.decided_at) ? `decided ${str(sj.decided_at)}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || null
+      : null;
+  const nonEmptyArr = (v: unknown) => Array.isArray(v) && v.length > 0;
+  const financialSnapshotSummary =
+    item.item_type === "financial_snapshot"
+      ? [
+          nonEmptyArr(sj.monthly_income) ? "income" : null,
+          nonEmptyArr(sj.monthly_investment) ? "investment" : null,
+          nonEmptyArr(sj.liquid_cash) ? "cash" : null,
+          nonEmptyArr(sj.liabilities) ? "liabilities" : null,
+          str(sj.as_of) ? `as of ${str(sj.as_of)}` : null,
         ]
           .filter(Boolean)
           .join(" · ") || null
@@ -217,6 +231,9 @@ export function InboxCard({ item }: { item: InboxItem }) {
       {habitSummary ? <p className="text-sm text-muted">{habitSummary}</p> : null}
       {goalSummary ? <p className="text-sm text-muted">{goalSummary}</p> : null}
       {decisionSummary ? <p className="text-sm text-muted">{decisionSummary}</p> : null}
+      {financialSnapshotSummary ? (
+        <p className="text-sm text-muted">{financialSnapshotSummary}</p>
+      ) : null}
 
       {needsManual ? (
         <p className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-warning">

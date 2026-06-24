@@ -158,6 +158,7 @@ Always create new commits. Only amend if explicitly asked.
 - `habits` — confirmed habit definitions, definition-only (Phase 20+)
 - `goals` — confirmed goals; status active/achieved/abandoned mutable post-confirm (Phase 20+)
 - `decisions` — confirmed decision-journal entries; status active/reversed/archived mutable post-confirm (Phase 21+)
+- `manual_financial_snapshots` — reviewed manual financial inputs (cash/income/investment/liabilities by currency), immutable (Phase 22a+)
 - no portfolio tables — Phase 14 portfolio is read-only, broker data only, no Supabase writes
 
 See `docs/data-model.md` for full entity descriptions.

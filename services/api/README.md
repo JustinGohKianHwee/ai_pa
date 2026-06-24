@@ -12,11 +12,12 @@ migration. See **Read-only enforcement** below.
 
 Phase 13 (✓ complete): daily review — `GET /daily_review`. Phase 12 (✓ complete): calendar
 intents. Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription.
-Migrations `0001`–`0016` exist; `0009`–`0016` require manual application as applicable.
+Migrations `0001`–`0017` exist; `0009`–`0017` require manual application as applicable.
 Replace `<OWNER_USER_ID>` in `0010_owner_id.sql`, `0011_memory_events.sql`,
-`0013_exercise_logs.sql`, `0015_habits_goals.sql`, and `0016_decisions.sql` with the Supabase
-owner UUID before applying them. Phase 17 also requires a **private Supabase Storage bucket named
-`food-photos`** (food photos; signed-URL reads only). 464 tests pass.
+`0013_exercise_logs.sql`, `0015_habits_goals.sql`, `0016_decisions.sql`, and
+`0017_financial_snapshots.sql` with the Supabase owner UUID before applying them. Phase 17 also
+requires a **private Supabase Storage bucket named `food-photos`** (food photos; signed-URL reads
+only). 487 tests pass.
 
 ## Planned stack
 - Python 3.11+
@@ -338,6 +339,16 @@ Expected response:
   active/achieved/abandoned, mirrors `tasks.complete`), classifier `habit`/`goal` types + schemas,
   habit/goal branches in `confirm`. Habits are definition-only; goal status changes do not write
   memory_events. Manual setup: apply `0015` (replace `<OWNER_USER_ID>`).
+- Phase 22a: Financial Intelligence Layer, migration `0017_financial_snapshots.sql`
+  (`manual_financial_snapshots` immutable JSONB-array table + `confirm_financial_snapshot_item` RPC,
+  widened `inbox_items.item_type` for `financial_snapshot`, RLS, default-filled `owner_id`).
+  Classifier `financial_snapshot` type + `FinancialSnapshotStructuredJson`; `app/services/
+  financial_intelligence.py :: compute_summary()` (pure, deterministic, per-currency);
+  `GET /financial_snapshots`, `GET /financial_intelligence/summary` (net worth/cash/invested/
+  liabilities/income/logged-expenses/savings/investment/runway, by currency, missing→unavailable).
+  Monthly-expense windows use `money_events.created_at` with USER_TIMEZONE month boundaries. No
+  cross-currency total, no AI numbers, no advice. Manual setup: apply `0017`
+  (replace `<OWNER_USER_ID>`). Monthly explanation + housing-fund are deferred to 22b.
 - Phase 21: Decision Journal, migration `0016_decisions.sql` (`decisions` table +
   `confirm_decision_item` RPC writing one `memory_events` row, widened `inbox_items.item_type` for
   `decision`, RLS, default-filled `owner_id`). `app/routes/decisions.py` (`GET /decisions`,

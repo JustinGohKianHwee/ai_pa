@@ -3,7 +3,7 @@ import { ArrowUpRight } from "lucide-react";
 import { authedFetch } from "@/lib/api";
 import { PageContainer, PageHeader, BentoGrid, MetricTile } from "@/components/ui";
 import { Sparkline } from "@/components/Sparkline";
-import { fmtMoney, fmtInt, fmtSignedMoney, pnlTone } from "@/lib/format";
+import { fmtMoney, fmtInt, fmtNum, fmtSignedMoney, pnlTone } from "@/lib/format";
 import type { TasksResponse } from "./tasks/types";
 import type { MoneyEventsResponse } from "./finance/types";
 import type { FoodLogsResponse } from "./food/types";
@@ -11,6 +11,7 @@ import type { ExerciseLogsResponse } from "./exercise/types";
 import type { HabitsResponse } from "./habits/types";
 import type { GoalsResponse } from "./goals/types";
 import type { DecisionsResponse } from "./decisions/types";
+import type { FinancialSummary } from "./financial-intelligence/types";
 import type { CalendarIntentsResponse } from "./calendar/types";
 import type { InboxResponse } from "./inbox/types";
 import type { DailyReview } from "./review/types";
@@ -36,7 +37,7 @@ async function getJson<T>(path: string): Promise<T | null> {
 }
 
 export default async function DashboardPage() {
-  const [snapshots, tasks, finance, food, exercise, habits, goals, decisions, calendar, inbox, review] =
+  const [snapshots, tasks, finance, food, exercise, habits, goals, decisions, finIntel, calendar, inbox, review] =
     await Promise.all([
       getJson<SnapshotListResponse>("/portfolio/snapshots"),
       getJson<TasksResponse>("/tasks"),
@@ -46,6 +47,7 @@ export default async function DashboardPage() {
       getJson<HabitsResponse>("/habits"),
       getJson<GoalsResponse>("/goals"),
       getJson<DecisionsResponse>("/decisions"),
+      getJson<FinancialSummary>("/financial_intelligence/summary"),
       getJson<CalendarIntentsResponse>("/calendar_intents"),
       getJson<InboxResponse>("/inbox"),
       getJson<DailyReview>("/daily_review"),
@@ -75,6 +77,14 @@ export default async function DashboardPage() {
   const habitsCount = habits?.total ?? null;
   const activeGoals = goals?.items?.filter((g) => g.status === "active").length ?? null;
   const decisionsCount = decisions?.total ?? null;
+
+  // Financial intelligence: pick the currency with the largest net worth as the headline.
+  const finBlocks = finIntel?.currencies ?? [];
+  const primaryFin =
+    finBlocks
+      .filter((b) => b.net_worth.value !== null)
+      .sort((a, b) => (b.net_worth.value ?? 0) - (a.net_worth.value ?? 0))[0] ?? null;
+  const finAsOf = finIntel?.portfolio_as_of ?? finIntel?.manual_as_of ?? null;
   const upcoming = calendar?.items ?? [];
   const pending = inbox?.total ?? null;
 
@@ -243,6 +253,32 @@ export default async function DashboardPage() {
           href="/decisions"
           label="Decisions"
           value={decisionsCount === null ? "—" : fmtInt(decisionsCount)}
+          sub="logged"
+        />
+        <MetricTile
+          href="/financial-intelligence"
+          label="Net worth"
+          value={primaryFin ? fmtMoney(primaryFin.net_worth.value, primaryFin.currency) : "—"}
+          sub={primaryFin ? (finAsOf ? `as of ${finAsOf}` : primaryFin.currency) : "add a snapshot"}
+        />
+        <MetricTile
+          href="/financial-intelligence"
+          label="Cash runway"
+          value={
+            primaryFin && primaryFin.cash_runway_months !== null
+              ? `${fmtNum(primaryFin.cash_runway_months, 1)} mo`
+              : "—"
+          }
+          sub="logged expenses"
+        />
+        <MetricTile
+          href="/financial-intelligence"
+          label="Savings rate"
+          value={
+            primaryFin && primaryFin.savings_rate !== null
+              ? `${(primaryFin.savings_rate * 100).toFixed(0)}%`
+              : "—"
+          }
           sub="logged"
         />
         <MetricTile href="/calendar" label="Calendar" value={fmtInt(upcoming.length)} sub="intentions" />

@@ -10,6 +10,7 @@ import {
   Repeat,
   Target,
   Scale,
+  Landmark,
   Calendar,
   PieChart,
   Circle,
@@ -119,6 +120,14 @@ const DOMAIN_META: Record<string, DomainMeta> = {
         str(p.decided_at),
       ]),
     href: () => "/decisions",
+  },
+  financial_snapshot: {
+    label: "Finances",
+    icon: Landmark,
+    tone: "positive",
+    title: () => "Financial snapshot",
+    summary: (p) => join([str(p.as_of) ? `as of ${str(p.as_of)}` : null]),
+    href: () => "/financial-intelligence",
   },
   calendar: {
     label: "Calendar",

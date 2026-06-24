@@ -1718,3 +1718,60 @@ def test_confirm_decision_invalid_structured_json_returns_400(monkeypatch):
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
     assert response.status_code == 400
     mock.rpc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Phase 22a — financial_snapshot confirm dispatch
+# ---------------------------------------------------------------------------
+
+PENDING_FINSNAP_ROW = {
+    "id": INBOX_ID,
+    "item_type": "financial_snapshot",
+    "review_status": "pending",
+    "title": "Financial snapshot",
+    "body": "",
+    "confidence": 0.9,
+    "reviewed_at": None,
+    "updated_at": "2024-01-01T12:00:00+00:00",
+    "structured_json": {
+        "as_of": "today",
+        "liquid_cash": [{"currency": "SGD", "amount": 25000}],
+        "monthly_income": [{"currency": "SGD", "amount": 8000}],
+    },
+}
+FINSNAP_ROW = {
+    "id": "fs-uuid-1",
+    "inbox_item_id": INBOX_ID,
+    "as_of": "today",
+    "monthly_income_json": [{"currency": "SGD", "amount": 8000}],
+    "monthly_investment_json": [],
+    "liquid_cash_json": [{"currency": "SGD", "amount": 25000}],
+    "liabilities_json": [],
+    "notes": None,
+    "created_at": "2024-01-01T12:05:00+00:00",
+}
+FINSNAP_RPC_RESULT = {
+    "inbox_item": {**PENDING_FINSNAP_ROW, "review_status": "confirmed", "reviewed_at": "2024-01-01T13:00:00+00:00"},
+    "financial_snapshot": FINSNAP_ROW,
+}
+
+
+def test_confirm_pending_financial_snapshot(monkeypatch):
+    mock = _make_hg_confirm_mock(PENDING_FINSNAP_ROW, rpc_result=FINSNAP_RPC_RESULT)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inbox_item"]["review_status"] == "confirmed"
+    assert body["financial_snapshot"]["liquid_cash"][0]["amount"] == 25000
+    assert mock.rpc.call_args.args[0] == "confirm_financial_snapshot_item"
+
+
+def test_confirm_financial_snapshot_invalid_structured_json_returns_400(monkeypatch):
+    # all arrays empty violates the at-least-one-entry rule → 400, no RPC
+    row = {**PENDING_FINSNAP_ROW, "structured_json": {"as_of": "today"}}
+    mock = _make_hg_confirm_mock(row)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()

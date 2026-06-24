@@ -25,7 +25,7 @@ CLASSIFICATION_MODEL = "gpt-4o-mini"
 
 ItemType = Literal[
     "task", "finance", "calendar", "food", "exercise", "habit", "goal", "decision",
-    "investment", "note", "journal", "unknown",
+    "financial_snapshot", "investment", "note", "journal", "unknown",
 ]
 
 SYSTEM_PROMPT = """\
@@ -41,6 +41,7 @@ Allowed types and the EXACT fields to extract for each (no extra fields):
   habit       – { "name": str, "cadence": str|null, "target": str|null, "notes": str|null }  (cadence is free text like "daily" or "3x a week"; do not invent one)
   goal        – { "title": str, "description": str|null, "target": str|null, "target_date": str|null, "notes": str|null }  (target/target_date are free text; if no date is given, target_date is null — do not invent one)
   decision    – { "decision": str, "reason": str|null, "options_considered": str|null, "expected_outcome": str|null, "confidence": float|null, "category": str|null, "decided_at": str|null, "notes": str|null }  (decision = the choice made; confidence is the user's 0.0-1.0 confidence ONLY if they state it; do not invent confidence or decided_at)
+  financial_snapshot – { "as_of": str|null, "monthly_income": [{"currency": str, "amount": float}], "monthly_investment": [{...}], "liquid_cash": [{...}], "liabilities": [{...}], "notes": str|null }  (a STATEMENT of standing balances/recurring income/liabilities, NOT a transaction; each list holds one entry per currency; amounts >= 0; omit a list if not mentioned; liquid_cash is NON-broker bank/CPF cash)
   investment  – { "action_intent": "buy"|"sell"|"note", "ticker": str|null, "amount": float|null, "currency": "SGD" (default), "notes": str|null }
   note        – { "content": str, "tags": [str] }
   journal     – { "content": str, "mood": str|null }
@@ -67,8 +68,14 @@ outcome/target to achieve), a "task" (a single action to perform), and a "note" 
 fact, or preference with NO choice between alternatives). Only fall back to "note"/"unknown" when \
 there is genuinely no choice being made — do not fabricate a decision, but do not downgrade a clear \
 choice to a note either.
-  - Do not invent a logged_at timestamp, a goal target_date, or a decision decided_at/confidence. \
-If not explicitly given, set them to null.
+  - A "financial_snapshot" is a STATEMENT of the user's standing financial position — balances, \
+recurring monthly income, monthly investment contribution, or outstanding liabilities ("I have \
+25k in DBS and 30k in CPF", "my salary is 8k a month", "I invest 2k monthly", "I owe 12k on my \
+car loan"). It is NOT a transaction: a single expense ("spent $12 on lunch") is "finance"; a \
+one-off payment received is "finance" income; buying/selling a security is "investment". Put \
+recurring salary in monthly_income, NOT a finance event.
+  - Do not invent a logged_at timestamp, a goal target_date, a decision decided_at/confidence, or \
+a financial_snapshot as_of. If not explicitly given, set them to null.
 
 Respond ONLY with valid JSON in this exact shape — no extra commentary:
 {
@@ -211,6 +218,51 @@ class DecisionStructuredJson(BaseModel):
         return v
 
 
+class CurrencyAmount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    currency: str
+    amount: float
+
+    @field_validator("currency")
+    @classmethod
+    def currency_non_empty(cls, v: str) -> str:
+        v = v.strip().upper()
+        if not v:
+            raise ValueError("currency must be a non-empty code")
+        return v
+
+    @field_validator("amount")
+    @classmethod
+    def amount_finite_nonneg(cls, v: float) -> float:
+        if not math.isfinite(v) or v < 0:
+            raise ValueError("amount must be a finite number >= 0")
+        return v
+
+
+class FinancialSnapshotStructuredJson(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    as_of: Optional[str] = None
+    monthly_income: list[CurrencyAmount] = Field(default_factory=list)
+    monthly_investment: list[CurrencyAmount] = Field(default_factory=list)
+    liquid_cash: list[CurrencyAmount] = Field(default_factory=list)
+    liabilities: list[CurrencyAmount] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def at_least_one_entry(self) -> "FinancialSnapshotStructuredJson":
+        if not (
+            self.monthly_income
+            or self.monthly_investment
+            or self.liquid_cash
+            or self.liabilities
+        ):
+            raise ValueError(
+                "a financial_snapshot must include at least one of "
+                "monthly_income / monthly_investment / liquid_cash / liabilities"
+            )
+        return self
+
+
 class InvestmentStructuredJson(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action_intent: Literal["buy", "sell", "note"]
@@ -246,6 +298,7 @@ _ITEM_TYPE_SCHEMAS: dict[str, type[BaseModel]] = {
     "habit":      HabitStructuredJson,
     "goal":       GoalStructuredJson,
     "decision":   DecisionStructuredJson,
+    "financial_snapshot": FinancialSnapshotStructuredJson,
     "investment": InvestmentStructuredJson,
     "journal":    JournalStructuredJson,
     "note":       NoteStructuredJson,
