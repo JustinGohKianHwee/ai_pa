@@ -21,9 +21,16 @@ from pydantic import BaseModel
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
 from app.security import require_user
-from app.services.financial_intelligence import compute_summary
+from app.services.financial_intelligence import compute_monthly, compute_summary
 
 router = APIRouter(prefix="/financial_intelligence", tags=["financial_intelligence"])
+
+_SNAPSHOT_SELECT = (
+    "snapshot_date,partial_failure,"
+    "portfolio_snapshot_currency_totals("
+    "currency,market_value,cash_value,invested_value,total_value,"
+    "market_value_complete,market_value_missing)"
+)
 
 
 class FinancialIntelligenceSummary(BaseModel):
@@ -32,6 +39,13 @@ class FinancialIntelligenceSummary(BaseModel):
     portfolio_partial: bool | None = None
     manual_as_of: str | None = None
     has_manual_snapshot: bool = False
+
+
+class MonthlyExplanation(BaseModel):
+    month: str
+    prev_month: str
+    has_previous_month: bool
+    currencies: list[dict]
 
 
 def _month_starts(tz: ZoneInfo) -> tuple[str, str, str]:
@@ -133,3 +147,91 @@ def get_summary(owner_id: str = Depends(require_user)) -> FinancialIntelligenceS
         manual_as_of=(manual.get("as_of") or manual.get("created_at")) if manual else None,
         has_manual_snapshot=manual is not None,
     )
+
+
+def _month_windows(tz: ZoneInfo) -> tuple[str, str, str, str, str]:
+    """Return (prev_start_utc, cur_start_utc, next_start_utc, month_label, prev_month_label)."""
+    today = datetime.now(tz).date()
+    y, m = today.year, today.month
+    cur = datetime(y, m, 1, tzinfo=tz)
+    nm, ny = (1, y + 1) if m == 12 else (m + 1, y)
+    nxt = datetime(ny, nm, 1, tzinfo=tz)
+    pm, py = (12, y - 1) if m == 1 else (m - 1, y)
+    prev = datetime(py, pm, 1, tzinfo=tz)
+    to_utc = lambda d: d.astimezone(timezone.utc).isoformat()
+    return to_utc(prev), to_utc(cur), to_utc(nxt), cur.strftime("%B %Y"), prev.strftime("%B %Y")
+
+
+def _portfolio_summary(row: dict) -> dict:
+    return {
+        "snapshot_date": str(row["snapshot_date"]),
+        "partial_failure": bool(row["partial_failure"]),
+        "currency_totals": row.get("portfolio_snapshot_currency_totals") or [],
+    }
+
+
+@router.get("/monthly", response_model=MonthlyExplanation)
+def get_monthly(owner_id: str = Depends(require_user)) -> MonthlyExplanation:
+    try:
+        client = get_supabase_client()
+    except SupabaseConfigurationError as exc:
+        raise HTTPException(status_code=500, detail=f"Database configuration error: {exc}")
+
+    tz = ZoneInfo(os.getenv("USER_TIMEZONE", "UTC"))
+    prev_start, cur_start, next_start, month_label, prev_month_label = _month_windows(tz)
+
+    try:
+        current_month = _expenses_by_currency(client, owner_id, cur_start, next_start)
+        # Previous-month comparison only if ≥1 expense was logged before the current month.
+        history_res = (
+            client.table("money_events")
+            .select("id")
+            .eq("owner_id", owner_id)
+            .eq("direction", "expense")
+            .lt("created_at", cur_start)
+            .limit(1)
+            .execute()
+        )
+        has_previous = bool(history_res.data)
+        previous_month = (
+            _expenses_by_currency(client, owner_id, prev_start, cur_start) if has_previous else None
+        )
+        manual_res = (
+            client.table("manual_financial_snapshots")
+            .select("*")
+            .eq("owner_id", owner_id)
+            .order("created_at", desc=True)
+            .limit(2)
+            .execute()
+        )
+        snap_res = (
+            client.table("portfolio_snapshots")
+            .select(_SNAPSHOT_SELECT)
+            .eq("owner_id", owner_id)
+            .order("snapshot_date", desc=True)
+            .limit(2)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    manual_rows = manual_res.data or []
+    income = {}
+    if manual_rows:
+        from app.services.financial_intelligence import _to_map
+
+        income = _to_map(manual_rows[0].get("monthly_income_json"))
+    manual_pair = (manual_rows[0], manual_rows[1]) if len(manual_rows) >= 2 else None
+
+    snap_rows = snap_res.data or []
+    portfolio_pair = (
+        (_portfolio_summary(snap_rows[0]), _portfolio_summary(snap_rows[1]))
+        if len(snap_rows) >= 2
+        else None
+    )
+
+    result = compute_monthly(
+        month_label, prev_month_label, current_month, previous_month,
+        income, manual_pair, portfolio_pair,
+    )
+    return MonthlyExplanation(**result)

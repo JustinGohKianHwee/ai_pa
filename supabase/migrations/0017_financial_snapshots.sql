@@ -54,7 +54,7 @@ alter table inbox_items add constraint inbox_items_item_type_check
 create table if not exists manual_financial_snapshots (
     id                      uuid primary key default gen_random_uuid(),
     inbox_item_id           uuid not null unique references inbox_items (id),
-    owner_id                text not null default '<OWNER_USER_ID>',
+    owner_id                text not null default 'd64140ca-fad6-4444-84f6-96b976d5f784',
     as_of                   text,
     monthly_income_json     jsonb not null default '[]'::jsonb,
     monthly_investment_json jsonb not null default '[]'::jsonb,

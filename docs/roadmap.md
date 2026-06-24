@@ -758,11 +758,24 @@ numbers, no advice; double-count guard (manual cash = non-broker; broker cash fr
 **Manual prerequisite:** apply `0017` (replace `<OWNER_USER_ID>`). UI labels expense-derived
 metrics "logged … (confirmed expense records only)" since bank auto-pull is not implemented.
 
-### Phase 22b — Financial Intelligence: monthly explanation + housing-fund (deferred) — *feature 6 cont.*
-Deterministic month-over-month explanation (`GET /financial_intelligence/monthly` — Δ net worth
-from snapshots, Δ logged spend, savings rate; no AI calculations) and housing-fund progress linked
-to a `goal` (`GET /financial_intelligence/housing-goal`; first explicit goal linkage, broader
-attribution stays Phase 25). Not built yet.
+### Phase 22b-1 — Financial Intelligence: monthly explanation ✓ implementation complete (manual verification pending) — *feature 6 cont.*
+Deterministic, per-currency month-over-month explanation: `GET /financial_intelligence/monthly`
+(`require_user`) via the pure `compute_monthly()`. Per currency: current-vs-previous-month **logged**
+expenses + Δ (money_events by `created_at`/USER_TIMEZONE windows; previous shown only if ≥1 expense
+predates the current month — else unavailable, never implied 0); **logged** savings rate (income
+from latest manual snapshot) + Δ; manual-position change (cash − liabilities) between the two latest
+manual snapshots if ≥2; portfolio `total_value` change between the two latest portfolio snapshots if
+≥2 (labeled with both `snapshot_date`s + partial flag); deterministic `explanation[]` strings only.
+**No migration, no AI numbers, no advice, no cross-currency total**; missing → unavailable. A
+"This month" section on `/financial-intelligence`. 498 backend tests pass; frontend clean. Status:
+implementation reviewed, awaiting manual verification.
+
+### Phase 22b-2 — Financial goal progress v1 (deferred, planned) — *feature 6 cont.*
+Minimal financial-goal progress: extend `goals` with numeric `target_value` + `target_currency`
+(migration), a goal is "financial" iff both set; `GET /financial_intelligence/financial-goals`
+returns per-goal progress = base_value/target by currency. **Open decision:** progress base
+(net worth vs liquid cash vs a tiny per-goal `target_metric` field — to be settled when planning
+22b-2). No FX, no attribution/activity-linking (Phase 25), no projections. Not built yet.
 
 ### Phase 23 — Notes / journal + lifestyle check-ins — *existing journal + feature 7 (lightweight)*
 Free-form notes/journal (capture → confirm, searchable) **plus** an optional structured daily

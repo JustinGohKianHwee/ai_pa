@@ -260,7 +260,7 @@ edit, Confirm, and Reject controls.
 - Daily Life Timeline — read-only chronological feed over `memory_events` (Phase 19+)
 - Habits and Goals views (Phase 20+)
 - Decision Journal view (Phase 21+)
-- Financial Intelligence — deterministic per-currency metrics, no AI numbers (Phase 22a+)
+- Financial Intelligence — deterministic per-currency metrics + monthly explanation, no AI numbers (Phase 22a/22b-1+)
 
 **Key principle:** The frontend never calls AI directly. It reads from Supabase (for
 confirmed domain data) and calls backend API endpoints (for capture and confirmation actions).

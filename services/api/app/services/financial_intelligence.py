@@ -1,8 +1,8 @@
 """
-Deterministic Financial Intelligence metrics (Phase 22a).
+Deterministic Financial Intelligence metrics (Phase 22a) + monthly explanation (Phase 22b-1).
 
-`compute_summary` is a PURE function (no DB, no network) so every metric is unit-testable.
-The route fetches + aggregates the raw inputs and passes them in. Rules:
+`compute_summary` and `compute_monthly` are PURE functions (no DB, no network) so every metric
+is unit-testable. The route fetches + aggregates the raw inputs and passes them in. Rules:
   * Everything is per-currency. Amounts are NEVER summed across currencies.
   * Missing inputs yield None ("unavailable") — never a fabricated/estimated number.
   * Monthly expenses are "logged" expenses from confirmed money_events only (not total spend).
@@ -11,6 +11,10 @@ The route fetches + aggregates the raw inputs and passes them in. Rules:
 """
 from decimal import Decimal
 from typing import Optional
+
+
+def _money(ccy: str, value: float) -> str:
+    return f"{ccy} {value:,.2f}"
 
 
 def _round2(value: Optional[float]) -> Optional[float]:
@@ -135,3 +139,166 @@ def compute_summary(
         )
 
     return {"currencies": blocks}
+
+
+def _signed(ccy: str, delta: float) -> str:
+    word = "up" if delta > 0 else "down" if delta < 0 else "unchanged"
+    if delta == 0:
+        return "unchanged"
+    return f"{word} {_money(ccy, abs(delta))}"
+
+
+def compute_monthly(
+    month_label: str,
+    prev_month_label: str,
+    current_expenses: dict[str, float],
+    previous_expenses: Optional[dict[str, float]],
+    income: dict[str, float],
+    manual_pair: Optional[tuple[dict, dict]],
+    portfolio_pair: Optional[tuple[dict, dict]],
+) -> dict:
+    """
+    Deterministic month-over-month explanation (Phase 22b-1), per currency.
+
+    previous_expenses is None when there is no logged history before the current month
+    (then previous/delta are unavailable — never implied as 0). income is the latest manual
+    snapshot's monthly_income map. manual_pair / portfolio_pair are (latest, previous) rows,
+    or None when fewer than two snapshots exist.
+    """
+    has_previous = previous_expenses is not None
+
+    # Manual position = liquid_cash − liabilities, per currency, for each of the two snapshots.
+    manual_pos: Optional[tuple[dict[str, float], dict[str, float], dict, dict]] = None
+    if manual_pair is not None:
+        latest, prev = manual_pair
+        latest_pos = _to_map(latest.get("liquid_cash_json"))
+        latest_liab = _to_map(latest.get("liabilities_json"))
+        prev_pos = _to_map(prev.get("liquid_cash_json"))
+        prev_liab = _to_map(prev.get("liabilities_json"))
+        latest_net = {c: latest_pos.get(c, 0.0) - latest_liab.get(c, 0.0)
+                      for c in set(latest_pos) | set(latest_liab)}
+        prev_net = {c: prev_pos.get(c, 0.0) - prev_liab.get(c, 0.0)
+                    for c in set(prev_pos) | set(prev_liab)}
+        manual_pos = (latest_net, prev_net, latest, prev)
+
+    # Portfolio total_value per currency for each of the two snapshots.
+    pf_pair: Optional[tuple[dict[str, float], dict[str, float], dict, dict]] = None
+    if portfolio_pair is not None:
+        latest_s, prev_s = portfolio_pair
+        latest_tv = {str(t["currency"]).strip().upper(): t["total_value"]
+                     for t in (latest_s.get("currency_totals") or [])}
+        prev_tv = {str(t["currency"]).strip().upper(): t["total_value"]
+                   for t in (prev_s.get("currency_totals") or [])}
+        pf_pair = (latest_tv, prev_tv, latest_s, prev_s)
+
+    currencies = set(current_expenses) | set(income)
+    if has_previous:
+        currencies |= set(previous_expenses)
+    if manual_pos:
+        currencies |= set(manual_pos[0]) | set(manual_pos[1])
+    if pf_pair:
+        currencies |= set(pf_pair[0]) | set(pf_pair[1])
+
+    blocks = []
+    for c in sorted(currencies):
+        cur_exp = current_expenses.get(c, 0.0)
+        prev_exp = previous_expenses.get(c, 0.0) if has_previous else None
+        exp_delta = (cur_exp - prev_exp) if prev_exp is not None else None
+
+        income_c = income.get(c)
+        cur_sr = (income_c - cur_exp) / income_c if income_c and income_c > 0 else None
+        prev_sr = (
+            (income_c - prev_exp) / income_c
+            if income_c and income_c > 0 and prev_exp is not None
+            else None
+        )
+        sr_delta = (cur_sr - prev_sr) if cur_sr is not None and prev_sr is not None else None
+
+        manual_change = None
+        if manual_pos is not None:
+            latest_net, prev_net, latest_row, prev_row = manual_pos
+            frm = prev_net.get(c, 0.0)
+            to = latest_net.get(c, 0.0)
+            manual_change = {
+                "from": _round2(frm),
+                "to": _round2(to),
+                "delta": _round2(to - frm),
+                "from_as_of": prev_row.get("as_of") or prev_row.get("created_at"),
+                "to_as_of": latest_row.get("as_of") or latest_row.get("created_at"),
+            }
+
+        portfolio_change = None
+        if pf_pair is not None:
+            latest_tv, prev_tv, latest_s, prev_s = pf_pair
+            if c in latest_tv and c in prev_tv:
+                portfolio_change = {
+                    "from": _round2(prev_tv[c]),
+                    "to": _round2(latest_tv[c]),
+                    "delta": _round2(latest_tv[c] - prev_tv[c]),
+                    "from_date": str(prev_s.get("snapshot_date")),
+                    "to_date": str(latest_s.get("snapshot_date")),
+                    "partial": bool(latest_s.get("partial_failure") or prev_s.get("partial_failure")),
+                }
+
+        explanation: list[str] = []
+        if prev_exp is not None:
+            explanation.append(
+                f"Logged spending in {month_label} was {_money(c, cur_exp)} — "
+                f"{_signed(c, -exp_delta) if exp_delta is not None else ''} vs {prev_month_label} "
+                f"({_money(c, prev_exp)}). Based on confirmed expense records only."
+            )
+        else:
+            explanation.append(
+                f"Logged spending in {month_label} was {_money(c, cur_exp)}. No prior month to "
+                f"compare yet — based on confirmed expense records only."
+            )
+        if cur_sr is not None:
+            line = (
+                f"Logged savings rate in {month_label}: {cur_sr * 100:.1f}% "
+                f"(income {_money(c, income_c)} − logged expenses {_money(c, cur_exp)})."
+            )
+            if prev_sr is not None:
+                line += f" vs {prev_sr * 100:.1f}% in {prev_month_label}."
+            explanation.append(line)
+        else:
+            explanation.append(
+                f"Logged savings rate unavailable for {c} — add monthly income via a financial snapshot."
+            )
+        if manual_change is not None:
+            explanation.append(
+                f"Manual financial position (cash − liabilities) for {c} was "
+                f"{_signed(c, manual_change['delta'])} between {manual_change['from_as_of']} and "
+                f"{manual_change['to_as_of']}."
+            )
+        if portfolio_change is not None:
+            note = " (partial — a broker was unavailable)" if portfolio_change["partial"] else ""
+            explanation.append(
+                f"Portfolio total for {c} was {_signed(c, portfolio_change['delta'])} between "
+                f"{portfolio_change['from_date']} and {portfolio_change['to_date']}{note}."
+            )
+
+        blocks.append(
+            {
+                "currency": c,
+                "logged_expenses": {
+                    "current": _round2(cur_exp),
+                    "previous": _round2(prev_exp) if prev_exp is not None else None,
+                    "delta": _round2(exp_delta) if exp_delta is not None else None,
+                },
+                "savings_rate": {
+                    "current": round(cur_sr, 4) if cur_sr is not None else None,
+                    "previous": round(prev_sr, 4) if prev_sr is not None else None,
+                    "delta": round(sr_delta, 4) if sr_delta is not None else None,
+                },
+                "manual_position_change": manual_change,
+                "portfolio_change": portfolio_change,
+                "explanation": explanation,
+            }
+        )
+
+    return {
+        "month": month_label,
+        "prev_month": prev_month_label,
+        "has_previous_month": has_previous,
+        "currencies": blocks,
+    }
