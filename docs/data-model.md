@@ -330,8 +330,15 @@ active/achieved/abandoned, default `active`), `created_at`, `updated_at` (via th
 `set_updated_at()` trigger). RLS deny-by-default; service-role only.
 
 > Migration `0015` also **widens the `inbox_items.item_type` CHECK** to include `habit` and `goal`
-> (required for any new item_type — see the Phase 18 `exercise` precedent). No progress
-> computation, attribution, or linking to records (deferred to Phase 25).
+> (required for any new item_type — see the Phase 18 `exercise` precedent).
+>
+> **Phase 22b-2 extension (`0018_goal_financial_target.sql`):** `goals` gains `target_value`
+> (numeric, CHECK ≥0), `target_currency` (text), and `target_metric`
+> (`net_worth`|`liquid_cash`|`invested`|`broker_total`, null → net_worth). A goal is a **financial
+> goal** iff `target_value` + `target_currency` are set; `confirm_goal_item` is replaced to persist
+> them. `GET /financial_intelligence/financial-goals` computes `progress_pct = base_value /
+> target_value` (base = the chosen metric in the goal's currency, via `compute_summary`), per
+> currency, no FX. **No attribution / activity-linking / projections** (broad attribution → Phase 25).
 
 ---
 

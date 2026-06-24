@@ -58,3 +58,20 @@ export interface MonthlyExplanation {
   has_previous_month: boolean;
   currencies: MonthlyCurrencyBlock[];
 }
+
+export interface FinancialGoalProgress {
+  id: string;
+  title: string;
+  target_value: number;
+  target_currency: string;
+  target_metric: string;
+  base_value: number | null;
+  progress_pct: number | null;
+  status: string;
+}
+
+export interface FinancialGoalsResponse {
+  items: FinancialGoalProgress[];
+  portfolio_as_of: string | null;
+  portfolio_partial: boolean | null;
+}

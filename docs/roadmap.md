@@ -767,15 +767,21 @@ from latest manual snapshot) + Δ; manual-position change (cash − liabilities)
 manual snapshots if ≥2; portfolio `total_value` change between the two latest portfolio snapshots if
 ≥2 (labeled with both `snapshot_date`s + partial flag); deterministic `explanation[]` strings only.
 **No migration, no AI numbers, no advice, no cross-currency total**; missing → unavailable. A
-"This month" section on `/financial-intelligence`. 498 backend tests pass; frontend clean. Status:
-implementation reviewed, awaiting manual verification.
+"This month" section on `/financial-intelligence`.
 
-### Phase 22b-2 — Financial goal progress v1 (deferred, planned) — *feature 6 cont.*
-Minimal financial-goal progress: extend `goals` with numeric `target_value` + `target_currency`
-(migration), a goal is "financial" iff both set; `GET /financial_intelligence/financial-goals`
-returns per-goal progress = base_value/target by currency. **Open decision:** progress base
-(net worth vs liquid cash vs a tiny per-goal `target_metric` field — to be settled when planning
-22b-2). No FX, no attribution/activity-linking (Phase 25), no projections. Not built yet.
+### Phase 22b-2 — Financial goal progress v1 ✓ implementation complete (migration/manual verification pending) — *feature 6 cont.*
+Minimal, deterministic, per-currency financial-goal progress. Migration `0018_goal_financial_target.sql`
+adds `goals.target_value` / `target_currency` / `target_metric`
+(`net_worth`|`liquid_cash`|`invested`|`broker_total`, default net_worth) and `CREATE OR REPLACE
+confirm_goal_item` to persist them (preserving the Phase 20 memory-event write). A goal is a
+**financial goal** iff `target_value` + `target_currency` are set; the classifier extracts a numeric
+money target ("save 100000 SGD for BTO" → `target_value`/`target_currency`). `GET
+/financial_intelligence/financial-goals` returns per-goal `progress_pct = base_value / target_value`
+where `base_value` is the chosen `target_metric` in the goal's currency (reusing `compute_summary`);
+**by currency, no FX, no cross-currency**; missing base → unavailable. A "Financial goals" section on
+`/financial-intelligence` (progress bars + a "no funds earmarked / no attribution in v1" caveat).
+**No attribution, no activity linking, no projections.** Broad attribution stays Phase 25. 496
+backend tests pass; frontend clean. **Manual prerequisite:** apply `0018`.
 
 ### Phase 23 — Notes / journal + lifestyle check-ins — *existing journal + feature 7 (lightweight)*
 Free-form notes/journal (capture → confirm, searchable) **plus** an optional structured daily

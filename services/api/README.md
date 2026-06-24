@@ -354,7 +354,11 @@ Expected response:
   manual-position change (≥2 manual snapshots), portfolio total_value change (≥2 portfolio
   snapshots, labeled with dates + partial), deterministic explanation strings. Previous month only
   if ≥1 expense predates the current month. A "This month" section on `/financial-intelligence`.
-  Financial-goal progress (22b-2) is still deferred.
+- Phase 22b-2: Financial goal progress v1, migration `0018_goal_financial_target.sql` (adds
+  `goals.target_value`/`target_currency`/`target_metric` + `CREATE OR REPLACE confirm_goal_item`).
+  `GET /financial_intelligence/financial-goals` → per-goal `progress_pct = base_value/target_value`
+  (base = chosen `target_metric` in the goal's currency, via `compute_summary`), by currency, no FX,
+  missing→unavailable. No attribution/projections. Manual setup: apply `0018`.
 - Phase 21: Decision Journal, migration `0016_decisions.sql` (`decisions` table +
   `confirm_decision_item` RPC writing one `memory_events` row, widened `inbox_items.item_type` for
   `decision`, RLS, default-filled `owner_id`). `app/routes/decisions.py` (`GET /decisions`,

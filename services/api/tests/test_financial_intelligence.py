@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.db.supabase_client import SupabaseConfigurationError
 from app.main import app
-from app.services.classifier import FinancialSnapshotStructuredJson
+from app.services.classifier import FinancialSnapshotStructuredJson, GoalStructuredJson
 from app.services.financial_intelligence import compute_monthly, compute_summary
 
 client = TestClient(app)
@@ -406,3 +406,118 @@ def test_monthly_db_config_error_500():
         side_effect=SupabaseConfigurationError("missing key"),
     ):
         assert client.get("/financial_intelligence/monthly", headers=_auth()).status_code == 500
+
+
+# ===========================================================================
+# Phase 22b-2 — financial goal progress
+# ===========================================================================
+
+
+def test_goal_schema_accepts_numeric_target():
+    m = GoalStructuredJson.model_validate(
+        {"title": "BTO fund", "target_value": 100000, "target_currency": "sgd",
+         "target_metric": "liquid_cash"}
+    )
+    assert m.target_value == 100000
+    assert m.target_currency == "SGD"  # upper-cased
+    assert m.target_metric == "liquid_cash"
+
+
+def test_goal_schema_rejects_negative_target():
+    with pytest.raises(Exception):
+        GoalStructuredJson.model_validate({"title": "x", "target_value": -1})
+
+
+def test_goal_schema_rejects_bad_metric():
+    with pytest.raises(Exception):
+        GoalStructuredJson.model_validate(
+            {"title": "x", "target_value": 100, "target_currency": "SGD", "target_metric": "bogus"}
+        )
+
+
+def _fin_goals_mock(manual_rows, snap_rows, money_results, goals_rows):
+    c = MagicMock()
+    manual_tbl = MagicMock()
+    manual_tbl.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = MagicMock(data=manual_rows)
+    snap_tbl = MagicMock()
+    snap_tbl.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = MagicMock(data=snap_rows)
+    money_tbl = MagicMock()
+    money_tbl.select.return_value.eq.return_value.eq.return_value.gte.return_value.lt.return_value.execute.side_effect = [
+        MagicMock(data=d) for d in money_results
+    ]
+    goals_tbl = MagicMock()
+    gq = goals_tbl.select.return_value
+    gq.eq.return_value = gq
+    gq.not_ = gq
+    gq.is_.return_value = gq
+    gq.order.return_value = gq
+    gq.execute.return_value = MagicMock(data=goals_rows)
+    c.table.side_effect = lambda name: {
+        "manual_financial_snapshots": manual_tbl,
+        "portfolio_snapshots": snap_tbl,
+        "money_events": money_tbl,
+        "goals": goals_tbl,
+    }[name]
+    return c
+
+
+def _fin_goal_row(**kw) -> dict:
+    base = {
+        "id": "goal-1", "title": "BTO fund", "status": "active",
+        "target_value": 100000, "target_currency": "SGD", "target_metric": "net_worth",
+    }
+    base.update(kw)
+    return base
+
+
+def test_financial_goals_auth_missing_401():
+    assert client.get("/financial_intelligence/financial-goals").status_code == 401
+
+
+def test_financial_goals_auth_non_owner_403():
+    token = mint_test_token(sub="00000000-0000-0000-0000-0000000000ff")
+    assert client.get(
+        "/financial_intelligence/financial-goals", headers={"Authorization": f"Bearer {token}"}
+    ).status_code == 403
+
+
+def test_financial_goals_empty():
+    mock = _fin_goals_mock([], [], [[], []], [])
+    with patch("app.routes.financial_intelligence.get_supabase_client", return_value=mock):
+        res = client.get("/financial_intelligence/financial-goals", headers=_auth())
+    assert res.status_code == 200
+    assert res.json()["items"] == []
+
+
+def test_financial_goals_progress_against_net_worth():
+    manual = [_manual(liquid_cash_json=[{"currency": "SGD", "amount": 50000}])]
+    mock = _fin_goals_mock(manual, [], [[], []], [_fin_goal_row()])
+    with patch("app.routes.financial_intelligence.get_supabase_client", return_value=mock):
+        res = client.get("/financial_intelligence/financial-goals", headers=_auth())
+    item = res.json()["items"][0]
+    assert item["base_value"] == 50000.0
+    assert item["progress_pct"] == 0.5
+    assert item["target_metric"] == "net_worth"
+
+
+def test_financial_goals_progress_against_liquid_cash():
+    manual = [_manual(liquid_cash_json=[{"currency": "SGD", "amount": 30000}],
+                      liabilities_json=[{"currency": "SGD", "amount": 5000}])]
+    goal = _fin_goal_row(target_metric="liquid_cash", target_value=60000)
+    mock = _fin_goals_mock(manual, [], [[], []], [goal])
+    with patch("app.routes.financial_intelligence.get_supabase_client", return_value=mock):
+        res = client.get("/financial_intelligence/financial-goals", headers=_auth())
+    item = res.json()["items"][0]
+    assert item["base_value"] == 30000.0
+    assert item["progress_pct"] == 0.5
+
+
+def test_financial_goals_unavailable_when_currency_absent():
+    manual = [_manual(liquid_cash_json=[{"currency": "SGD", "amount": 50000}])]
+    goal = _fin_goal_row(target_currency="USD")
+    mock = _fin_goals_mock(manual, [], [[], []], [goal])
+    with patch("app.routes.financial_intelligence.get_supabase_client", return_value=mock):
+        res = client.get("/financial_intelligence/financial-goals", headers=_auth())
+    item = res.json()["items"][0]
+    assert item["base_value"] is None
+    assert item["progress_pct"] is None

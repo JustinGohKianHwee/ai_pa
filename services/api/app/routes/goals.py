@@ -33,6 +33,9 @@ class GoalResponse(BaseModel):
     target: Optional[str] = None
     target_date: Optional[str] = None
     status: str
+    target_value: Optional[float] = None
+    target_currency: Optional[str] = None
+    target_metric: Optional[str] = None
     created_at: str
     updated_at: str
 

@@ -39,7 +39,7 @@ Allowed types and the EXACT fields to extract for each (no extra fields):
   food        – { "description": str, "meal_type": "breakfast"|"lunch"|"dinner"|"snack"|null, "logged_at": str|null, "calories": float|null, "protein_g": float|null, "carbs_g": float|null, "fat_g": float|null }  (estimate calories and macros from the description; approximate is fine)
   exercise    – { "activity": str, "duration_min": float|null, "distance_km": float|null, "sets": int|null, "reps": int|null, "intensity": str|null, "calories": float|null, "logged_at": str|null, "notes": str|null }  (extract the fields present; estimate calories burned roughly if you can — approximate is fine)
   habit       – { "name": str, "cadence": str|null, "target": str|null, "notes": str|null }  (cadence is free text like "daily" or "3x a week"; do not invent one)
-  goal        – { "title": str, "description": str|null, "target": str|null, "target_date": str|null, "notes": str|null }  (target/target_date are free text; if no date is given, target_date is null — do not invent one)
+  goal        – { "title": str, "description": str|null, "target": str|null, "target_date": str|null, "notes": str|null, "target_value": float|null, "target_currency": str|null }  (target/target_date are free text; if the goal has a NUMERIC money target, also set target_value + target_currency, e.g. "save 100000 SGD for BTO" → target_value 100000, target_currency "SGD"; do not invent a target_value, target_currency, or target_date)
   decision    – { "decision": str, "reason": str|null, "options_considered": str|null, "expected_outcome": str|null, "confidence": float|null, "category": str|null, "decided_at": str|null, "notes": str|null }  (decision = the choice made; confidence is the user's 0.0-1.0 confidence ONLY if they state it; do not invent confidence or decided_at)
   financial_snapshot – { "as_of": str|null, "monthly_income": [{"currency": str, "amount": float}], "monthly_investment": [{...}], "liquid_cash": [{...}], "liabilities": [{...}], "notes": str|null }  (a STATEMENT of standing balances/recurring income/liabilities, NOT a transaction; each list holds one entry per currency; amounts >= 0; omit a list if not mentioned; liquid_cash is NON-broker bank/CPF cash)
   investment  – { "action_intent": "buy"|"sell"|"note", "ticker": str|null, "amount": float|null, "currency": "SGD" (default), "notes": str|null }
@@ -195,6 +195,29 @@ class GoalStructuredJson(BaseModel):
     target: Optional[str] = None
     target_date: Optional[str] = None
     notes: Optional[str] = None
+    # Phase 22b-2: numeric monetary target makes this a "financial goal".
+    target_value: Optional[float] = None
+    target_currency: Optional[str] = None
+    target_metric: Optional[
+        Literal["net_worth", "liquid_cash", "invested", "broker_total"]
+    ] = None
+
+    @field_validator("target_value")
+    @classmethod
+    def target_value_finite_nonneg(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return v
+        if not math.isfinite(v) or v < 0:
+            raise ValueError("target_value must be a finite number >= 0")
+        return v
+
+    @field_validator("target_currency")
+    @classmethod
+    def upper_currency(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip().upper()
+        return v or None
 
 
 class DecisionStructuredJson(BaseModel):
