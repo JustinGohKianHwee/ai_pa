@@ -739,7 +739,7 @@ apply `0016` (replace `<OWNER_USER_ID>`). **Deferred (out of scope):** outcome-r
 (no placeholder column), `related_goal_id`/attribution (Phase 25), quality scoring, AI advice.
 High long-term moat; no automatic actions.
 
-### Phase 22a — Financial Intelligence Layer — implementation reviewed, merged for manual verification (pending) — *feature 6*
+### Phase 22a — Financial Intelligence Layer ✓ complete (implementation reviewed · merged · manual verification passed) — *feature 6*
 Deterministic, per-currency metrics over existing data + a **reviewed manual financial snapshot**.
 Migration `0017_financial_snapshots.sql`: `manual_financial_snapshots` (immutable, JSONB
 `{currency,amount}` arrays for monthly_income / monthly_investment / liquid_cash[non-broker] /
