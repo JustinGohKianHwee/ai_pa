@@ -406,6 +406,19 @@ groups the current local month's confirmed **expense** `money_events` by **curre
 desc) with per-currency totals. By currency, never cross-currency summed; logged/confirmed expenses
 only; no new table.
 
+### `statement_imports` / `statement_rows` — Phase 22d (implemented, `supabase/migrations/0019_statement_imports.sql`)
+
+Review-first CSV statement reconciliation staging. **Not** a domain table and **never** a source of
+`money_events` directly. `statement_imports` is one row per uploaded file (owner_id default-filled,
+`source_label`, `row_count`/`matched_count`/`imported_count`, `created_at`). `statement_rows` holds
+the immutable parsed rows (`import_id` FK, owner_id, `occurred_on` text, `description`, `amount`
+numeric, `currency`, `status` CHECK `matched`|`imported`, `matched_money_event_id` FK,
+`inbox_item_id` FK). On import each row is either **matched** to an existing confirmed `money_event`
+(deterministic currency + amount → recorded as verified) or **imported** — a `capture_event`
+(source `statement_import`) + a **pending finance `inbox_item`** is created so the row flows through
+the normal review → confirm pipeline (`confirm_finance_item`) → `money_event`. No auto-confirm, no
+auto-categorize, no `money_events` schema change. RLS deny-by-default; service-role only.
+
 ---
 
 ### Portfolio data — Phase 14 (external, read-only)

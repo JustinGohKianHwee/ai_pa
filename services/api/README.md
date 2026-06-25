@@ -364,6 +364,13 @@ Expected response:
   confirmed expenses grouped by currency → category (Decimal, ordered by amount desc, null →
   "uncategorized") + per-currency totals; "This month by category" section on
   `/financial-intelligence`. By currency, never cross-currency summed; logged expenses only.
+- Phase 22d: Statement import & verification, migration `0019_statement_imports.sql`
+  (`statement_imports` + `statement_rows` staging; RLS). `app/services/statement_import.py`
+  (pure CSV parser), `app/routes/statements.py` (`POST /statements/import` multipart;
+  `GET /statements`, `GET /statements/{id}`). Matches rows to existing `money_events` by
+  currency+amount; unmatched rows create a `capture_event` (source `statement_import`) + pending
+  finance `inbox_item` reviewed via the normal pipeline (no auto-confirm, no `money_events` change).
+  Adds `python-multipart`. Manual setup: apply `0019` (replace `<OWNER_USER_ID>`).
 - Phase 21: Decision Journal, migration `0016_decisions.sql` (`decisions` table +
   `confirm_decision_item` RPC writing one `memory_events` row, widened `inbox_items.item_type` for
   `decision`, RLS, default-filled `owner_id`). `app/routes/decisions.py` (`GET /decisions`,

@@ -23,6 +23,7 @@ from app.routes.inbox import router as inbox_router  # noqa: E402
 from app.routes.portfolio import router as portfolio_router  # noqa: E402
 from app.routes.portfolio_snapshots import router as portfolio_snapshots_router  # noqa: E402
 from app.routes.review import router as review_router  # noqa: E402
+from app.routes.statements import router as statements_router  # noqa: E402
 from app.routes.tasks import router as tasks_router  # noqa: E402
 from app.routes.telegram import router as telegram_router  # noqa: E402
 from app.routes.timeline import router as timeline_router  # noqa: E402
@@ -52,4 +53,5 @@ app.include_router(daily_review_router)
 app.include_router(timeline_router)
 app.include_router(portfolio_router)
 app.include_router(portfolio_snapshots_router)
+app.include_router(statements_router)
 app.include_router(telegram_router)

@@ -795,12 +795,19 @@ logged (confirmed) expenses only; no AI numbers, no advice; no new migration.** 
 pass; frontend clean. Grounding:
 `docs/plans/roadmap-review-after-22b-memory-findings.md` §10 and `docs/plans/memory-grounded-phase-plan.md`.
 
-### Phase 22d — Statement import & verification (deferred, planned — NOT built)
-Larger deterministic finance-data-quality effort, kept **review-first**: bank/card **statement
-import → staging table → match staged rows to `money_events` → review-before-confirm** (no
-auto-confirm, no auto-categorize). Deferred because file parsing (CSV/PDF) + fuzzy matching + a
-staging/review UX is a substantial build; sequence it after 22c if finance accuracy remains the
-priority, but it is **not** a memory prerequisite. High-level only here; no implementation plan yet.
+### Phase 22d — Statement import & verification ✓ implementation complete (migration/manual verification pending)
+Review-first CSV statement reconciliation, migration `0019_statement_imports.sql`
+(`statement_imports` + `statement_rows` staging; RLS; no `money_events` change). `POST
+/statements/import` parses a CSV (`date,description,amount[,currency]`; positive expense rows),
+stages each row, and **matches** it against an existing confirmed `money_event` (deterministic
+currency + amount). **Matched** rows are recorded as verified; **unmatched** rows create a
+`capture_event` (source `statement_import`) + a **pending finance `inbox_item`** that flows through
+the normal review → confirm pipeline (`confirm_finance_item`) → `money_event`. **No auto-confirm,
+no auto-categorize, no new `money_events` path**; nothing becomes an expense without explicit inbox
+confirmation. `GET /statements` + `GET /statements/{id}`; a `/statements` page (CSV upload + import
+list; review happens in the existing inbox). Adds `python-multipart`. **v1 limitation:** matching is
+currency+amount only (occurred_at is free text / created_at is log time). 525 backend tests pass;
+frontend clean. **Manual prerequisite:** apply `0019` (replace `<OWNER_USER_ID>`).
 
 ### Phase 23 — Notes / journal + lifestyle check-ins — *existing journal + feature 7 (lightweight)*
 Free-form notes/journal (capture → confirm, searchable) **plus** an optional structured daily

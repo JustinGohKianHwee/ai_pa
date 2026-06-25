@@ -17,6 +17,7 @@ import {
   Target,
   Scale,
   PieChart,
+  FileText,
   LogOut,
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
@@ -28,6 +29,7 @@ const items = [
   { href: "/tasks", label: "Tasks", icon: CheckSquare },
   { href: "/finance", label: "Finance", icon: Wallet },
   { href: "/financial-intelligence", label: "Financial Intelligence", icon: Landmark },
+  { href: "/statements", label: "Statements", icon: FileText },
   { href: "/food", label: "Food", icon: Apple },
   { href: "/exercise", label: "Exercise", icon: Dumbbell },
   { href: "/habits", label: "Habits", icon: Repeat },
