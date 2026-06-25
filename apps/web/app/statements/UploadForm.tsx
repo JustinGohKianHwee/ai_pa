@@ -33,17 +33,20 @@ export function UploadForm() {
 
   return (
     <form ref={formRef} onSubmit={onSubmit} className="rounded-xl border border-border bg-surface p-5">
-      <p className="text-sm font-medium text-fg">Import a statement (CSV)</p>
+      <p className="text-sm font-medium text-fg">Import a statement (CSV or PDF)</p>
       <p className="mt-1 text-xs text-muted">
-        Columns: <span className="numeric">date, description, amount</span> (and optional{" "}
-        <span className="numeric">currency</span>). Rows matching an existing expense are marked
-        verified; the rest become pending items in your inbox to review &amp; confirm.
+        <span className="font-medium text-fg">CSV:</span> columns{" "}
+        <span className="numeric">date, description, amount</span> (and optional{" "}
+        <span className="numeric">currency</span>).{" "}
+        <span className="font-medium text-fg">PDF:</span> a text-based statement; rows are read by
+        AI. Rows matching an existing expense are marked verified; the rest become pending items in
+        your inbox to review &amp; confirm — nothing is saved without your confirmation.
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <input
           type="file"
           name="file"
-          accept=".csv,text/csv"
+          accept=".csv,text/csv,.pdf,application/pdf"
           required
           className="text-sm text-muted file:mr-3 file:rounded-lg file:border file:border-border file:bg-surface-raised file:px-3 file:py-1.5 file:text-sm file:text-fg"
         />

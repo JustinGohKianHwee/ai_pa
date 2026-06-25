@@ -1,10 +1,15 @@
 """
-Statement import (Phase 22d) — review-first reconciliation.
+Statement import (Phase 22d / 22d-2) — review-first reconciliation.
 
-POST /statements/import parses an uploaded CSV, stages immutable rows, and for each row either
-MATCHES an existing confirmed money_event (currency + amount → recorded as verified) or IMPORTS it
-(creates a capture_event + a pending finance inbox_item, which the user reviews/confirms through the
-normal pipeline → money_event). Nothing becomes a money_event without explicit inbox confirmation.
+POST /statements/import parses an uploaded statement (CSV or text-based PDF), stages immutable
+rows, and for each row either MATCHES an existing confirmed money_event (currency + amount →
+recorded as verified) or IMPORTS it (creates a capture_event + a pending finance inbox_item, which
+the user reviews/confirms through the normal pipeline → money_event). Nothing becomes a money_event
+without explicit inbox confirmation.
+
+CSV is parsed deterministically. PDF text is structured by gpt-4o-mini (statement_pdf); the LLM
+only PROPOSES rows — every row still lands in the inbox for explicit review, so extraction errors
+are caught there, never auto-trusted.
 
 GET /statements lists imports; GET /statements/{id} lists that import's rows.
 """
@@ -16,10 +21,22 @@ from pydantic import BaseModel
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
 from app.security import require_user
 from app.services.statement_import import StatementParseError, parse_statement_csv
+from app.services.statement_pdf import (
+    StatementExtractionError,
+    extract_pdf_text,
+    extract_rows_from_text,
+)
 
 router = APIRouter(prefix="/statements", tags=["statements"])
 
 MAX_STATEMENT_BYTES = 5 * 1024 * 1024
+
+
+def _is_pdf(filename: Optional[str], raw: bytes) -> bool:
+    """PDF if the filename ends in .pdf or the bytes carry the %PDF magic header."""
+    if filename and filename.lower().endswith(".pdf"):
+        return True
+    return raw[:5].startswith(b"%PDF")
 
 
 class StatementImportResult(BaseModel):
@@ -83,15 +100,29 @@ async def import_statement(
     raw = await file.read()
     if len(raw) > MAX_STATEMENT_BYTES:
         raise HTTPException(status_code=413, detail="Statement file too large")
-    try:
-        content = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=422, detail="File must be UTF-8 CSV text")
 
-    try:
-        rows = parse_statement_csv(content, default_currency)
-    except StatementParseError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+    if _is_pdf(file.filename, raw):
+        # PDF → extract text (deterministic) → structure rows via the LLM. The LLM only proposes;
+        # every row still goes through the inbox for review.
+        try:
+            text = extract_pdf_text(raw)
+        except StatementParseError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        try:
+            rows = await extract_rows_from_text(text, default_currency)
+        except StatementExtractionError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        if not rows:
+            raise HTTPException(status_code=422, detail="No expense lines were found in this PDF.")
+    else:
+        try:
+            content = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=422, detail="File must be a UTF-8 CSV or a PDF")
+        try:
+            rows = parse_statement_csv(content, default_currency)
+        except StatementParseError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
 
     try:
         client = get_supabase_client()
@@ -109,12 +140,17 @@ async def import_statement(
         matched_count = 0
         imported_count = 0
         for idx, row in enumerate(rows):
+            # raw_descriptor is the verbatim bank line (preserved end-to-end); merchant is the
+            # normalized brand when the parser/LLM recognised one, else fall back to the descriptor.
+            descriptor = row.get("raw_descriptor") or row.get("merchant")
+            merchant = row.get("merchant") or descriptor
+
             money_event_id = _match_money_event(client, owner_id, row["currency"], row["amount"])
             if money_event_id:
                 client.table("statement_rows").insert({
                     "import_id": import_id,
                     "occurred_on": row["occurred_on"],
-                    "description": row["description"],
+                    "description": descriptor,
                     "amount": row["amount"],
                     "currency": row["currency"],
                     "status": "matched",
@@ -127,7 +163,7 @@ async def import_statement(
             capture = client.table("capture_events").insert({
                 "source": "statement_import",
                 "source_message_id": f"{import_id}:{idx}",
-                "raw_text": row["description"],
+                "raw_text": descriptor,
                 "processing_status": "classified",
                 "metadata": {"import_id": import_id, "occurred_on": row["occurred_on"]},
             }).execute()
@@ -136,13 +172,17 @@ async def import_statement(
                 "capture_event_id": capture_id,
                 "item_type": "finance",
                 "review_status": "pending",
-                "title": (row["description"] or "Statement expense")[:100],
-                "body": row["description"] or "",
+                "title": (merchant or "Statement expense")[:100],
+                "body": descriptor or "",
                 "structured_json": {
                     "amount": row["amount"],
                     "currency": row["currency"],
                     "direction": "expense",
-                    "merchant": row["description"],
+                    "merchant": merchant,
+                    "category": row.get("category"),
+                    # The exact bank descriptor is preserved in notes so it survives into the
+                    # money_event on confirm (confirm_finance_item copies structured_json->>'notes').
+                    "notes": descriptor,
                 },
                 "confidence": 1.0,
             }).execute()
@@ -150,7 +190,7 @@ async def import_statement(
             client.table("statement_rows").insert({
                 "import_id": import_id,
                 "occurred_on": row["occurred_on"],
-                "description": row["description"],
+                "description": descriptor,
                 "amount": row["amount"],
                 "currency": row["currency"],
                 "status": "imported",

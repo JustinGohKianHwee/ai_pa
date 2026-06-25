@@ -371,6 +371,13 @@ Expected response:
   currency+amount; unmatched rows create a `capture_event` (source `statement_import`) + pending
   finance `inbox_item` reviewed via the normal pipeline (no auto-confirm, no `money_events` change).
   Adds `python-multipart`. Manual setup: apply `0019` (replace `<OWNER_USER_ID>`).
+- Phase 22d-2: PDF statement import. `app/services/statement_pdf.py` — `extract_pdf_text` (pypdf,
+  deterministic; raises on a scanned/no-text-layer PDF) → `extract_rows_from_text` (gpt-4o-mini,
+  JSON mode, Pydantic-validated) → same row shape as the CSV parser. `POST /statements/import`
+  branches on filename/`%PDF` magic bytes (PDF → extract → LLM; else CSV). The LLM only proposes
+  rows; each still becomes a pending finance `inbox_item` reviewed before it's a `money_event`. No
+  migration (reuses 22d staging). Missing `OPENAI_API_KEY` → PDF import errors explicitly; CSV stays
+  key-free. Adds `pypdf`. Out of scope: scanned/image PDFs (OCR).
 - Phase 21: Decision Journal, migration `0016_decisions.sql` (`decisions` table +
   `confirm_decision_item` RPC writing one `memory_events` row, widened `inbox_items.item_type` for
   `decision`, RLS, default-filled `owner_id`). `app/routes/decisions.py` (`GET /decisions`,

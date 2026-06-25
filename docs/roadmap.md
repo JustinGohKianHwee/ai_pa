@@ -809,6 +809,41 @@ list; review happens in the existing inbox). Adds `python-multipart`. **v1 limit
 currency+amount only (occurred_at is free text / created_at is log time). 525 backend tests pass;
 frontend clean. **Manual prerequisite:** apply `0019` (replace `<OWNER_USER_ID>`).
 
+### Phase 22d-2 — PDF statement import (LLM extraction) ✓ implementation complete (manual verification pending)
+Adds text-based **PDF** statements alongside CSV — bank/card statements are usually PDFs.
+`statement_pdf.py`: `extract_pdf_text` (pypdf, deterministic; raises on a scanned/no-text-layer
+PDF) → `extract_rows_from_text` (gpt-4o-mini, JSON mode, Pydantic-validated) structures the text
+into the same row shape as the CSV parser. `POST /statements/import` branches on filename/`%PDF`
+magic bytes: PDF → extract → LLM; else CSV (unchanged). **The LLM only proposes rows** — every row
+still becomes a **pending finance `inbox_item`** reviewed/confirmed in the inbox, so an extraction
+error is caught there, never auto-trusted. This does **not** breach deterministic-finance: that
+rule governs *computing* numbers (summaries/net worth via SQL), not *parsing a document*. **No
+migration** (reuses `statement_imports`/`statement_rows`). Missing `OPENAI_API_KEY` → PDF import
+errors explicitly (no silent "0 rows"); CSV stays key-free. Frontend accepts `.csv,.pdf`. Adds
+`pypdf`. **Out of scope:** scanned/image PDFs (OCR), per-statement preview before the inbox (the
+inbox *is* the review surface).
+
+**Expense categorization (folded in):** the 22c by-category summary was empty ("uncategorized")
+because no path set `money_events.category`. Added a shared fixed taxonomy
+(`app/services/expense_categories.py`: Food & Drink, Groceries, Transport, Shopping, Bills &
+Utilities, Entertainment, Health, Travel, Education, Fees & Charges, Other). PDF extraction now
+proposes a category per row (LLM, snapped to the taxonomy); the CSV parser reads an optional
+`category` column; the import route writes `category` into the pending item's `structured_json`;
+and the text classifier's finance `category` is constrained + normalized to the same taxonomy.
+`confirm_finance_item` already persists `structured_json->>'category'`, so confirmed expenses now
+land categorized (still reviewable/overridable in the inbox, which shows the proposed category).
+
+**Ambiguous-merchant handling (e.g. Grab):** super-app descriptors like
+`GRAB* GPC-A-9A8QF2CWW4 SI SGP 06MAY` can be transport *or* food, and the `GPC-…` code is a payment
+reference, not a category signal. Extraction now separates three fields: `raw_descriptor` (the bank
+line copied **verbatim**, preserved end-to-end into `money_events.notes`), `merchant` (a clean brand
+only when clearly recognised — Grab → `Grab`, else null), and `category` (taxonomy value **only when
+clearly implied**; null for aggregator/ambiguous rows and **never inferred from reference codes**).
+No hardcoded `GPC-*` parsing — this is model guidance. Ambiguous rows arrive `merchant:"Grab",
+category:null`, stay pending, and the inbox shows a "needs category" chip + a one-click category
+dropdown so the user's choice sets the final category before confirm. 539 backend tests pass;
+frontend clean.
+
 ### Phase 23 — Notes / journal + lifestyle check-ins — *existing journal + feature 7 (lightweight)*
 Free-form notes/journal (capture → confirm, searchable) **plus** an optional structured daily
 check-in (energy, mood, sleep, stress, activity) as a reflective log — explicitly **not** a

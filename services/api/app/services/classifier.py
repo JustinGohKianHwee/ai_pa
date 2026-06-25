@@ -19,6 +19,8 @@ from typing import Any, Literal, Optional
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from app.services.expense_categories import normalize_category
+
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_MODEL = "gpt-4o-mini"
@@ -34,7 +36,7 @@ it into exactly one type and extract structured data.
 
 Allowed types and the EXACT fields to extract for each (no extra fields):
   task        – { "title": str|null, "due_date": str|null, "urgency": "today"|"this_week"|"someday"|null, "notes": str|null }
-  finance     – { "amount": float, "currency": "SGD" (default), "direction": "expense"|"income", "merchant": str|null, "category": str|null, "occurred_at": str|null, "notes": str|null }
+  finance     – { "amount": float, "currency": "SGD" (default), "direction": "expense"|"income", "merchant": str|null, "category": str|null, "occurred_at": str|null, "notes": str|null }  (category, if clear, must be EXACTLY one of: Food & Drink, Groceries, Transport, Shopping, Bills & Utilities, Entertainment, Health, Travel, Education, Fees & Charges, Other; else null)
   calendar    – { "title": str, "proposed_datetime": str|null, "location": str|null, "notes": str|null }
   food        – { "description": str, "meal_type": "breakfast"|"lunch"|"dinner"|"snack"|null, "logged_at": str|null, "calories": float|null, "protein_g": float|null, "carbs_g": float|null, "fat_g": float|null }  (estimate calories and macros from the description; approximate is fine)
   exercise    – { "activity": str, "duration_min": float|null, "distance_km": float|null, "sets": int|null, "reps": int|null, "intensity": str|null, "calories": float|null, "logged_at": str|null, "notes": str|null }  (extract the fields present; estimate calories burned roughly if you can — approximate is fine)
@@ -119,6 +121,13 @@ class FinanceStructuredJson(BaseModel):
         if not math.isfinite(v) or v <= 0:
             raise ValueError("amount must be a finite number greater than zero")
         return v
+
+    @field_validator("category")
+    @classmethod
+    def snap_category_to_taxonomy(cls, v: Optional[str]) -> Optional[str]:
+        # Coerce to the shared expense taxonomy so the by-category summary groups coherently;
+        # unrecognised labels become None (uncategorized) rather than fragmenting the totals.
+        return normalize_category(v)
 
 
 class CalendarStructuredJson(BaseModel):

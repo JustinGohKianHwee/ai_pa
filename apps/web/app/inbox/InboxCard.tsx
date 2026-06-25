@@ -22,6 +22,22 @@ const VALID_ITEM_TYPES = [
   "unknown",
 ];
 
+// Shared expense taxonomy — mirrors services/api/app/services/expense_categories.py. Statement
+// imports leave ambiguous rows (e.g. Grab) uncategorized; the user picks the category here.
+const EXPENSE_CATEGORIES = [
+  "Food & Drink",
+  "Groceries",
+  "Transport",
+  "Shopping",
+  "Bills & Utilities",
+  "Entertainment",
+  "Health",
+  "Travel",
+  "Education",
+  "Fees & Charges",
+  "Other",
+];
+
 const inputClass =
   "w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
@@ -86,6 +102,18 @@ export function InboxCard({ item }: { item: InboxItem }) {
       : null;
 
   const str = (v: unknown) => (typeof v === "string" && v.trim() ? v : null);
+  const isExpenseFinance = item.item_type === "finance" && sj.direction !== "income";
+  const needsCategory = isExpenseFinance && !str(sj.category);
+  const financeSummary =
+    item.item_type === "finance"
+      ? [
+          typeof sj.amount === "number" ? `${str(sj.currency) ?? "SGD"} ${sj.amount}` : null,
+          sj.direction === "income" ? "income" : null,
+          str(sj.merchant),
+        ]
+          .filter(Boolean)
+          .join(" · ") || null
+      : null;
   const habitSummary =
     item.item_type === "habit"
       ? [str(sj.cadence), str(sj.target) ? `target ${str(sj.target)}` : null]
@@ -145,6 +173,21 @@ export function InboxCard({ item }: { item: InboxItem }) {
           typeof result.data?.detail === "string"
             ? result.data.detail
             : `Reject failed (${result.status})`
+        );
+      }
+    });
+  }
+
+  function handleCategoryChange(value: string) {
+    setActionError(null);
+    const next = { ...(item.structured_json as Record<string, unknown>), category: value || null };
+    startTransition(async () => {
+      const result = await editItem(item.id, { structured_json: next });
+      if (!result.ok) {
+        setActionError(
+          typeof result.data?.detail === "string"
+            ? result.data.detail
+            : `Update failed (${result.status})`
         );
       }
     });
@@ -228,6 +271,30 @@ export function InboxCard({ item }: { item: InboxItem }) {
         <p className="numeric text-sm text-muted">{exerciseSummary}</p>
       ) : null}
 
+      {financeSummary ? <p className="numeric text-sm text-muted">{financeSummary}</p> : null}
+      {isExpenseFinance && isPending_ ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-xs font-medium text-muted">Category</label>
+          <select
+            className="rounded-lg border border-border bg-bg px-2 py-1 text-xs text-fg outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            value={str(sj.category) ?? ""}
+            disabled={isPending}
+            onChange={(e) => handleCategoryChange(e.target.value)}
+          >
+            <option value="">uncategorized</option>
+            {EXPENSE_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          {needsCategory ? (
+            <span className="rounded-full border border-warning/40 bg-surface-raised px-2 py-0.5 text-[11px] font-medium text-warning">
+              needs category
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {habitSummary ? <p className="text-sm text-muted">{habitSummary}</p> : null}
       {goalSummary ? <p className="text-sm text-muted">{goalSummary}</p> : null}
       {decisionSummary ? <p className="text-sm text-muted">{decisionSummary}</p> : null}

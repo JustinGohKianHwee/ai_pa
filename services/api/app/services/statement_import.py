@@ -11,6 +11,8 @@ import math
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
+from app.services.expense_categories import normalize_category
+
 
 class StatementParseError(Exception):
     """The uploaded statement could not be parsed into valid rows."""
@@ -30,10 +32,12 @@ def _clean_amount(raw: str) -> Optional[float]:
 
 
 def parse_statement_csv(content: str, default_currency: str) -> list[dict]:
-    """Parse CSV text → [{occurred_on, description, amount, currency}, ...].
+    """Parse CSV text → [{occurred_on, raw_descriptor, merchant, amount, currency, category}, ...].
 
-    Raises StatementParseError if the header lacks required columns or no valid expense rows
-    are found. Rows with a non-positive/unparseable amount are skipped.
+    The CSV `description` cell is the bank descriptor: kept verbatim as raw_descriptor and also
+    used as the merchant (CSV exports are usually already a clean merchant name; the user can edit
+    it on review). Raises StatementParseError if the header lacks required columns or no valid
+    expense rows are found. Rows with a non-positive/unparseable amount are skipped.
     """
     default_currency = (default_currency or "").strip().upper()
     try:
@@ -58,12 +62,17 @@ def parse_statement_csv(content: str, default_currency: str) -> list[dict]:
         ccy = (raw.get(cols["currency"], "").strip().upper() if "currency" in cols else "") or default_currency
         if not ccy:
             raise StatementParseError("No currency column and no default currency supplied")
+        # Optional category column → snapped to the fixed taxonomy (deterministic; no LLM for CSV).
+        category = normalize_category(raw.get(cols["category"], "")) if "category" in cols else None
+        descriptor = (raw.get(cols["description"], "").strip() if "description" in cols else "") or None
         rows.append(
             {
                 "occurred_on": (raw.get(cols["date"], "").strip() if "date" in cols else None) or None,
-                "description": (raw.get(cols["description"], "").strip() if "description" in cols else "") or None,
+                "raw_descriptor": descriptor,
+                "merchant": descriptor,
                 "amount": amount,
                 "currency": ccy,
+                "category": category,
             }
         )
 
