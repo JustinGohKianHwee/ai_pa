@@ -15,6 +15,8 @@ from app.routes.finance import MoneyEventResponse
 from app.routes.food import FoodLogResponse
 from app.routes.goals import GoalResponse
 from app.routes.habits import HabitResponse
+from app.routes.journal import JournalResponse
+from app.routes.notes import NoteResponse
 from app.routes.tasks import TaskResponse
 from app.security import require_user
 from app.services.classifier import _ITEM_TYPE_SCHEMAS
@@ -112,6 +114,18 @@ class ConfirmFinancialSnapshotResponse(BaseModel):
     """Returned when a financial_snapshot item is confirmed: inbox item plus the snapshot."""
     inbox_item: ReviewedItemResponse
     financial_snapshot: FinancialSnapshotResponse
+
+
+class ConfirmNoteResponse(BaseModel):
+    """Returned when a note-type item is confirmed: the inbox item plus its note."""
+    inbox_item: ReviewedItemResponse
+    note: NoteResponse
+
+
+class ConfirmJournalResponse(BaseModel):
+    """Returned when a journal-type item is confirmed: the inbox item plus its entry."""
+    inbox_item: ReviewedItemResponse
+    journal_entry: JournalResponse
 
 
 class EditInboxItemRequest(BaseModel):
@@ -967,6 +981,168 @@ def _confirm_financial_snapshot(
     )
 
 
+def _fetch_note(client: Client, inbox_id: str) -> Optional[dict]:
+    res = client.table("notes").select("*").eq("inbox_item_id", inbox_id).execute()
+    return res.data[0] if res.data else None
+
+
+def _recheck_note_confirm(client: Client, inbox_id: str, original: dict) -> ConfirmNoteResponse:
+    """Note counterpart of _recheck_decision_confirm (idempotent 200 / 409 / 503)."""
+    try:
+        item = _fetch_item(client, inbox_id)
+        note = _fetch_note(client, inbox_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    if item is not None and note is not None and item["review_status"] == "confirmed":
+        return ConfirmNoteResponse(
+            inbox_item=ReviewedItemResponse(**item), note=NoteResponse(**note)
+        )
+
+    if (
+        item is None
+        or item["review_status"] != original["review_status"]
+        or item["updated_at"] != original["updated_at"]
+    ):
+        raise HTTPException(
+            status_code=409, detail="Item was modified concurrently; confirm failed"
+        )
+
+    raise HTTPException(status_code=503, detail="Note confirmation database operation failed")
+
+
+def _confirm_note(client: Client, inbox_id: str, item: dict) -> ConfirmNoteResponse:
+    """Phase 23a atomic confirmation for note-type items via confirm_note_item RPC."""
+    if item["review_status"] == "confirmed":
+        try:
+            existing = _fetch_note(client, inbox_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database query failed") from exc
+        if existing is not None:
+            return ConfirmNoteResponse(
+                inbox_item=ReviewedItemResponse(**item), note=NoteResponse(**existing)
+            )
+        raise HTTPException(
+            status_code=409,
+            detail="Item was confirmed before the notes module existed; backfill is not supported.",
+        )
+
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot confirm item with review_status='{item['review_status']}'",
+        )
+
+    err, normalized = _validate_structured_json("note", item["structured_json"])
+    if err:
+        raise HTTPException(status_code=400, detail=f"structured_json invalid: {err}")
+
+    if not (normalized.get("content") or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="A note requires non-empty content before it can be confirmed.",
+        )
+
+    try:
+        result = client.rpc(
+            "confirm_note_item",
+            {"p_inbox_id": inbox_id, "p_expected_updated_at": item["updated_at"]},
+        ).execute()
+    except Exception:
+        return _recheck_note_confirm(client, inbox_id, item)
+
+    data = result.data
+    if not data:
+        return _recheck_note_confirm(client, inbox_id, item)
+
+    return ConfirmNoteResponse(
+        inbox_item=ReviewedItemResponse(**data["inbox_item"]),
+        note=NoteResponse(**data["note"]),
+    )
+
+
+def _fetch_journal(client: Client, inbox_id: str) -> Optional[dict]:
+    res = client.table("journal_entries").select("*").eq("inbox_item_id", inbox_id).execute()
+    return res.data[0] if res.data else None
+
+
+def _recheck_journal_confirm(
+    client: Client, inbox_id: str, original: dict
+) -> ConfirmJournalResponse:
+    """Journal counterpart of _recheck_decision_confirm (idempotent 200 / 409 / 503)."""
+    try:
+        item = _fetch_item(client, inbox_id)
+        entry = _fetch_journal(client, inbox_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    if item is not None and entry is not None and item["review_status"] == "confirmed":
+        return ConfirmJournalResponse(
+            inbox_item=ReviewedItemResponse(**item), journal_entry=JournalResponse(**entry)
+        )
+
+    if (
+        item is None
+        or item["review_status"] != original["review_status"]
+        or item["updated_at"] != original["updated_at"]
+    ):
+        raise HTTPException(
+            status_code=409, detail="Item was modified concurrently; confirm failed"
+        )
+
+    raise HTTPException(status_code=503, detail="Journal confirmation database operation failed")
+
+
+def _confirm_journal(client: Client, inbox_id: str, item: dict) -> ConfirmJournalResponse:
+    """Phase 23a atomic confirmation for journal-type items via confirm_journal_item RPC."""
+    if item["review_status"] == "confirmed":
+        try:
+            existing = _fetch_journal(client, inbox_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database query failed") from exc
+        if existing is not None:
+            return ConfirmJournalResponse(
+                inbox_item=ReviewedItemResponse(**item), journal_entry=JournalResponse(**existing)
+            )
+        raise HTTPException(
+            status_code=409,
+            detail="Item was confirmed before the journal module existed; backfill is not supported.",
+        )
+
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot confirm item with review_status='{item['review_status']}'",
+        )
+
+    err, normalized = _validate_structured_json("journal", item["structured_json"])
+    if err:
+        raise HTTPException(status_code=400, detail=f"structured_json invalid: {err}")
+
+    if not (normalized.get("content") or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="A journal entry requires non-empty content before it can be confirmed.",
+        )
+
+    try:
+        result = client.rpc(
+            "confirm_journal_item",
+            {"p_inbox_id": inbox_id, "p_expected_updated_at": item["updated_at"]},
+        ).execute()
+    except Exception:
+        return _recheck_journal_confirm(client, inbox_id, item)
+
+    data = result.data
+    if not data:
+        return _recheck_journal_confirm(client, inbox_id, item)
+
+    return ConfirmJournalResponse(
+        inbox_item=ReviewedItemResponse(**data["inbox_item"]),
+        journal_entry=JournalResponse(**data["journal_entry"]),
+    )
+
+
 @router.patch(
     "/{inbox_id}/confirm",
     dependencies=[Depends(require_user)],
@@ -974,7 +1150,7 @@ def _confirm_financial_snapshot(
 )
 def confirm_inbox_item(
     inbox_id: str,
-) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse | ConfirmExerciseResponse | ConfirmHabitResponse | ConfirmGoalResponse | ConfirmDecisionResponse | ConfirmFinancialSnapshotResponse:
+) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse | ConfirmExerciseResponse | ConfirmHabitResponse | ConfirmGoalResponse | ConfirmDecisionResponse | ConfirmFinancialSnapshotResponse | ConfirmNoteResponse | ConfirmJournalResponse:
     try:
         client = get_supabase_client()
     except SupabaseConfigurationError as exc:
@@ -1025,6 +1201,13 @@ def confirm_inbox_item(
     # Phase 22a: financial_snapshot items confirm atomically and create a manual snapshot.
     if item["item_type"] == "financial_snapshot":
         return _confirm_financial_snapshot(client, inbox_id, item)
+
+    # Phase 23a: note and journal items confirm atomically and create their domain records.
+    if item["item_type"] == "note":
+        return _confirm_note(client, inbox_id, item)
+
+    if item["item_type"] == "journal":
+        return _confirm_journal(client, inbox_id, item)
 
     # Non-module items keep the Phase 7 status-only confirmation (no domain record).
     if item["review_status"] == "confirmed":

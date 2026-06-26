@@ -845,10 +845,28 @@ dropdown so the user's choice sets the final category before confirm. 539 backen
 frontend clean.
 
 ### Phase 23 — Notes / journal + lifestyle check-ins — *existing journal + feature 7 (lightweight)*
-Free-form notes/journal (capture → confirm, searchable) **plus** an optional structured daily
-check-in (energy, mood, sleep, stress, activity) as a reflective log — explicitly **not** a
-medical/diagnostic tool. Structured rows so later correlation is possible; no diagnosis, no
-auto-advice.
+Split into 23a (notes + journal) and 23b (lifestyle check-ins) per one-module-per-phase discipline.
+
+#### Phase 23a — Notes & Journal ✓ implementation complete (manual verification pending)
+The `note` and `journal` item types already classified but fell through to status-only confirm (no
+domain record, no `memory_events`). 23a builds the domain layer, following the Decisions template
+(0016). Migration `0020_notes_journal.sql`: `notes` (content + `tags text[]`) and `journal_entries`
+(content + `mood`), both immutable (no status), RLS locked; **no item_type CHECK widening** (note/
+journal already allowed in 0016). Two atomic RPCs `confirm_note_item` / `confirm_journal_item`
+(same P0002–P0006 guards, UNIQUE inbox_item_id, service-role only) each write one `memory_events`
+row (domain `note`/`journal`). `review.py` gains `_confirm_note` / `_confirm_journal` + dispatch
+branches before the status-only fallthrough. Routes: `GET /notes` (optional `?q=` deterministic
+ILIKE content search — **no vectors**, that's Phase 28) + `GET /journal`. Frontend `/notes` (search
+box) and `/journal` pages, NavRail entries, inbox tag/mood summaries, and full timeline integration
+(DOMAIN_META + chips + backend ALLOWED_DOMAINS `note`/`journal`). Notes/journal are edited in the
+inbox before confirm; immutable after. 551 backend tests pass; frontend lint/tsc/build clean.
+**Manual prerequisite:** apply `0020` (replace `<OWNER_USER_ID>`).
+
+#### Phase 23b — Lifestyle check-ins (next)
+Optional structured daily check-in (energy, mood, sleep, stress, activity) as a reflective log —
+explicitly **not** a medical/diagnostic tool. New `checkin` item_type (classifier + structured
+schema + item_type CHECK widening), domain table, confirm RPC, page. Structured rows so later
+correlation is possible; no diagnosis, no auto-advice.
 
 ### Phase 24 — Daily briefing & weekly reflection — *features 9 + 10; the summaries engine*
 Populate `daily_summaries` from confirmed records + snapshots + `memory_events`; generate an

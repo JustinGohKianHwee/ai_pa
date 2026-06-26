@@ -18,6 +18,8 @@ import {
   Scale,
   PieChart,
   FileText,
+  StickyNote,
+  NotebookPen,
   LogOut,
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
@@ -35,6 +37,8 @@ const items = [
   { href: "/habits", label: "Habits", icon: Repeat },
   { href: "/goals", label: "Goals", icon: Target },
   { href: "/decisions", label: "Decisions", icon: Scale },
+  { href: "/notes", label: "Notes", icon: StickyNote },
+  { href: "/journal", label: "Journal", icon: NotebookPen },
   { href: "/calendar", label: "Calendar", icon: Calendar },
   { href: "/review", label: "Review", icon: ClipboardList },
   { href: "/timeline", label: "Timeline", icon: History },

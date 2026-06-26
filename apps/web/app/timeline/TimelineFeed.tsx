@@ -13,6 +13,8 @@ import {
   Landmark,
   Calendar,
   PieChart,
+  StickyNote,
+  NotebookPen,
   Circle,
   type LucideIcon,
 } from "lucide-react";
@@ -147,6 +149,22 @@ const DOMAIN_META: Record<string, DomainMeta> = {
       const date = str(p.snapshot_date);
       return date ? `/portfolio/history/${date}` : "/portfolio";
     },
+  },
+  note: {
+    label: "Note",
+    icon: StickyNote,
+    tone: "neutral",
+    title: (p) => str(p.content) ?? "Note",
+    summary: (p) => join([Array.isArray(p.tags) ? (p.tags as string[]).map((t) => `#${t}`).join(" ") : null]),
+    href: () => "/notes",
+  },
+  journal: {
+    label: "Journal",
+    icon: NotebookPen,
+    tone: "accent",
+    title: (p) => str(p.content) ?? "Journal entry",
+    summary: (p) => join([str(p.mood) ? `mood: ${str(p.mood)}` : null]),
+    href: () => "/journal",
   },
 };
 

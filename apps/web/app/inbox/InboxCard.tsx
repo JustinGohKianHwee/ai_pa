@@ -136,6 +136,12 @@ export function InboxCard({ item }: { item: InboxItem }) {
           .filter(Boolean)
           .join(" · ") || null
       : null;
+  const noteSummary =
+    item.item_type === "note" && Array.isArray(sj.tags) && sj.tags.length > 0
+      ? (sj.tags as unknown[]).filter((t): t is string => typeof t === "string").map((t) => `#${t}`).join(" ")
+      : null;
+  const journalSummary =
+    item.item_type === "journal" && str(sj.mood) ? `mood: ${str(sj.mood)}` : null;
   const nonEmptyArr = (v: unknown) => Array.isArray(v) && v.length > 0;
   const financialSnapshotSummary =
     item.item_type === "financial_snapshot"
@@ -298,6 +304,8 @@ export function InboxCard({ item }: { item: InboxItem }) {
       {habitSummary ? <p className="text-sm text-muted">{habitSummary}</p> : null}
       {goalSummary ? <p className="text-sm text-muted">{goalSummary}</p> : null}
       {decisionSummary ? <p className="text-sm text-muted">{decisionSummary}</p> : null}
+      {noteSummary ? <p className="text-sm text-muted">{noteSummary}</p> : null}
+      {journalSummary ? <p className="text-sm text-muted">{journalSummary}</p> : null}
       {financialSnapshotSummary ? (
         <p className="text-sm text-muted">{financialSnapshotSummary}</p>
       ) : null}

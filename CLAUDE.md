@@ -159,6 +159,8 @@ Always create new commits. Only amend if explicitly asked.
 - `goals` — confirmed goals; status active/achieved/abandoned mutable post-confirm (Phase 20+)
 - `decisions` — confirmed decision-journal entries; status active/reversed/archived mutable post-confirm (Phase 21+)
 - `manual_financial_snapshots` — reviewed manual financial inputs (cash/income/investment/liabilities by currency), immutable (Phase 22a+)
+- `notes` — confirmed free-form notes (content + tags), immutable (Phase 23a+)
+- `journal_entries` — confirmed reflective journal entries (content + mood), immutable (Phase 23a+)
 - no portfolio tables — Phase 14 portfolio is read-only, broker data only, no Supabase writes
 
 See `docs/data-model.md` for full entity descriptions.

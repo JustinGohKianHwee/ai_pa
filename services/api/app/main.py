@@ -20,6 +20,8 @@ from app.routes.habits import router as habits_router  # noqa: E402
 from app.routes.health import router as health_router  # noqa: E402
 from app.routes.health_db import router as health_db_router  # noqa: E402
 from app.routes.inbox import router as inbox_router  # noqa: E402
+from app.routes.journal import router as journal_router  # noqa: E402
+from app.routes.notes import router as notes_router  # noqa: E402
 from app.routes.portfolio import router as portfolio_router  # noqa: E402
 from app.routes.portfolio_snapshots import router as portfolio_snapshots_router  # noqa: E402
 from app.routes.review import router as review_router  # noqa: E402
@@ -54,4 +56,6 @@ app.include_router(timeline_router)
 app.include_router(portfolio_router)
 app.include_router(portfolio_snapshots_router)
 app.include_router(statements_router)
+app.include_router(notes_router)
+app.include_router(journal_router)
 app.include_router(telegram_router)

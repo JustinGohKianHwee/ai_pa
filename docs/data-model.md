@@ -421,6 +421,25 @@ auto-categorize, no `money_events` schema change. RLS deny-by-default; service-r
 
 ---
 
+### `notes` / `journal_entries` — Phase 23a (implemented, `supabase/migrations/0020_notes_journal.sql`)
+
+Confirmed free-form text domains. One row per source `inbox_item` (UNIQUE `inbox_item_id`),
+**immutable** after confirmation (no status, no edit endpoint — content is edited in the inbox
+before confirming). Written only by their atomic RPCs, each appending one `memory_events` row.
+
+- `notes` — `id`, `inbox_item_id` (UNIQUE FK), `owner_id` (default-filled), `content` (not null),
+  `tags text[]` (default `{}`), `created_at`. `confirm_note_item` writes `memory_events`
+  `domain='note'`, payload `{content, tags}`. Read via `GET /notes` (optional `?q=` ILIKE content
+  search — deterministic, no vectors).
+- `journal_entries` — same shape with `mood text` (nullable) instead of `tags`. `confirm_journal_item`
+  writes `memory_events` `domain='journal'`, payload `{content, mood}`. Read via `GET /journal`.
+
+Both RLS deny-by-default, service-role only. **No `inbox_items.item_type` CHECK widening** — `note`
+and `journal` were already allowed by migration `0016`. **Not stored yet:** edit-after-confirm,
+tag management, semantic/vector search (Phase 28).
+
+---
+
 ### Portfolio data — Phase 14 (external, read-only)
 
 Phase 14 does not add an `investment_notes` or portfolio-positions table. Current positions,

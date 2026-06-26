@@ -378,6 +378,13 @@ Expected response:
   rows; each still becomes a pending finance `inbox_item` reviewed before it's a `money_event`. No
   migration (reuses 22d staging). Missing `OPENAI_API_KEY` → PDF import errors explicitly; CSV stays
   key-free. Adds `pypdf`. Out of scope: scanned/image PDFs (OCR).
+- Phase 23a: Notes & Journal, migration `0020_notes_journal.sql` (`notes` content+`tags text[]`,
+  `journal_entries` content+`mood`; immutable; RLS; `confirm_note_item` / `confirm_journal_item`
+  RPCs each writing one `memory_events` row; **no item_type CHECK widening** — note/journal already
+  allowed in 0016). `app/routes/notes.py` (`GET /notes`, optional `?q=` ILIKE content search) +
+  `app/routes/journal.py` (`GET /journal`); `_confirm_note` / `_confirm_journal` + dispatch in
+  `review.py`; timeline `ALLOWED_DOMAINS` += `note`/`journal`. Edited in the inbox before confirm;
+  immutable after. Manual setup: apply `0020` (replace `<OWNER_USER_ID>`).
 - Phase 21: Decision Journal, migration `0016_decisions.sql` (`decisions` table +
   `confirm_decision_item` RPC writing one `memory_events` row, widened `inbox_items.item_type` for
   `decision`, RLS, default-filled `owner_id`). `app/routes/decisions.py` (`GET /decisions`,

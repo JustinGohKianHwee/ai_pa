@@ -1775,3 +1775,101 @@ def test_confirm_financial_snapshot_invalid_structured_json_returns_400(monkeypa
         response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
     assert response.status_code == 400
     mock.rpc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Phase 23a — note confirm dispatch
+# ---------------------------------------------------------------------------
+
+PENDING_NOTE_ROW = {
+    "id": INBOX_ID,
+    "item_type": "note",
+    "review_status": "pending",
+    "title": "Plumber",
+    "body": "",
+    "confidence": 0.9,
+    "reviewed_at": None,
+    "updated_at": "2024-01-01T12:00:00+00:00",
+    "structured_json": {"content": "call the plumber", "tags": ["home"]},
+}
+NOTE_ROW = {
+    "id": "note-uuid-1",
+    "inbox_item_id": INBOX_ID,
+    "content": "call the plumber",
+    "tags": ["home"],
+    "created_at": "2024-01-01T12:05:00+00:00",
+}
+NOTE_RPC_RESULT = {
+    "inbox_item": {**PENDING_NOTE_ROW, "review_status": "confirmed", "reviewed_at": "2024-01-01T13:00:00+00:00"},
+    "note": NOTE_ROW,
+}
+
+
+def test_confirm_pending_note_creates_note(monkeypatch):
+    mock = _make_hg_confirm_mock(PENDING_NOTE_ROW, rpc_result=NOTE_RPC_RESULT)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inbox_item"]["review_status"] == "confirmed"
+    assert body["note"]["content"] == "call the plumber"
+    assert body["note"]["tags"] == ["home"]
+    assert mock.rpc.call_args.args[0] == "confirm_note_item"
+
+
+def test_confirm_note_empty_content_returns_400(monkeypatch):
+    row = {**PENDING_NOTE_ROW, "structured_json": {"content": "   "}}
+    mock = _make_hg_confirm_mock(row)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Phase 23a — journal confirm dispatch
+# ---------------------------------------------------------------------------
+
+PENDING_JOURNAL_ROW = {
+    "id": INBOX_ID,
+    "item_type": "journal",
+    "review_status": "pending",
+    "title": "Reflection",
+    "body": "",
+    "confidence": 0.9,
+    "reviewed_at": None,
+    "updated_at": "2024-01-01T12:00:00+00:00",
+    "structured_json": {"content": "felt good after the run", "mood": "energized"},
+}
+JOURNAL_ROW = {
+    "id": "jrnl-uuid-1",
+    "inbox_item_id": INBOX_ID,
+    "content": "felt good after the run",
+    "mood": "energized",
+    "created_at": "2024-01-01T12:05:00+00:00",
+}
+JOURNAL_RPC_RESULT = {
+    "inbox_item": {**PENDING_JOURNAL_ROW, "review_status": "confirmed", "reviewed_at": "2024-01-01T13:00:00+00:00"},
+    "journal_entry": JOURNAL_ROW,
+}
+
+
+def test_confirm_pending_journal_creates_entry(monkeypatch):
+    mock = _make_hg_confirm_mock(PENDING_JOURNAL_ROW, rpc_result=JOURNAL_RPC_RESULT)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inbox_item"]["review_status"] == "confirmed"
+    assert body["journal_entry"]["content"] == "felt good after the run"
+    assert body["journal_entry"]["mood"] == "energized"
+    assert mock.rpc.call_args.args[0] == "confirm_journal_item"
+
+
+def test_confirm_journal_empty_content_returns_400(monkeypatch):
+    row = {**PENDING_JOURNAL_ROW, "structured_json": {"content": ""}}
+    mock = _make_hg_confirm_mock(row)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
