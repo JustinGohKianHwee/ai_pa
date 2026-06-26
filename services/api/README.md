@@ -385,6 +385,13 @@ Expected response:
   `app/routes/journal.py` (`GET /journal`); `_confirm_note` / `_confirm_journal` + dispatch in
   `review.py`; timeline `ALLOWED_DOMAINS` += `note`/`journal`. Edited in the inbox before confirm;
   immutable after. Manual setup: apply `0020` (replace `<OWNER_USER_ID>`).
+- Phase 23b: Lifestyle check-ins, migration `0021_lifestyle_checkins.sql` (**widens
+  `inbox_items.item_type` for `checkin`**; `lifestyle_checkins` table — `energy`/`stress` 1–5,
+  `sleep_hours` 0–24, `mood`/`activity`/`notes`/`as_of` text; immutable; RLS; `confirm_checkin_item`
+  RPC writing one `memory_events` row). Classifier `checkin` type + `CheckinStructuredJson` (lenient
+  1–5 ratings, ≥1 metric required) + disambiguation. `app/routes/checkins.py` (`GET /checkins`);
+  `_confirm_checkin` + dispatch in `review.py`; timeline `ALLOWED_DOMAINS` += `checkin`. **Not a
+  medical/diagnostic tool.** Manual setup: apply `0021` (replace `<OWNER_USER_ID>`).
 - Phase 21: Decision Journal, migration `0016_decisions.sql` (`decisions` table +
   `confirm_decision_item` RPC writing one `memory_events` row, widened `inbox_items.item_type` for
   `decision`, RLS, default-filled `owner_id`). `app/routes/decisions.py` (`GET /decisions`,

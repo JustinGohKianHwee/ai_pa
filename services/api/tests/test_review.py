@@ -1778,6 +1778,61 @@ def test_confirm_financial_snapshot_invalid_structured_json_returns_400(monkeypa
 
 
 # ---------------------------------------------------------------------------
+# Phase 23b — checkin confirm dispatch
+# ---------------------------------------------------------------------------
+
+PENDING_CHECKIN_ROW = {
+    "id": INBOX_ID,
+    "item_type": "checkin",
+    "review_status": "pending",
+    "title": "Daily check-in",
+    "body": "",
+    "confidence": 0.9,
+    "reviewed_at": None,
+    "updated_at": "2024-01-01T12:00:00+00:00",
+    "structured_json": {"energy": 4, "mood": "good", "sleep_hours": 7.5, "stress": 2, "activity": "walked 30min"},
+}
+CHECKIN_ROW = {
+    "id": "chk-uuid-1",
+    "inbox_item_id": INBOX_ID,
+    "as_of": None,
+    "energy": 4,
+    "mood": "good",
+    "sleep_hours": 7.5,
+    "stress": 2,
+    "activity": "walked 30min",
+    "notes": None,
+    "created_at": "2024-01-01T12:05:00+00:00",
+}
+CHECKIN_RPC_RESULT = {
+    "inbox_item": {**PENDING_CHECKIN_ROW, "review_status": "confirmed", "reviewed_at": "2024-01-01T13:00:00+00:00"},
+    "checkin": CHECKIN_ROW,
+}
+
+
+def test_confirm_pending_checkin_creates_checkin(monkeypatch):
+    mock = _make_hg_confirm_mock(PENDING_CHECKIN_ROW, rpc_result=CHECKIN_RPC_RESULT)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 200
+    body = response.json()
+    assert body["inbox_item"]["review_status"] == "confirmed"
+    assert body["checkin"]["energy"] == 4
+    assert body["checkin"]["sleep_hours"] == 7.5
+    assert mock.rpc.call_args.args[0] == "confirm_checkin_item"
+
+
+def test_confirm_checkin_no_metrics_returns_400(monkeypatch):
+    # all metrics absent violates the at-least-one rule in CheckinStructuredJson → 400, no RPC
+    row = {**PENDING_CHECKIN_ROW, "structured_json": {"as_of": "today"}}
+    mock = _make_hg_confirm_mock(row)
+    with patch("app.routes.review.get_supabase_client", return_value=mock):
+        response = client.patch(f"/inbox/{INBOX_ID}/confirm", headers=_auth_header())
+    assert response.status_code == 400
+    mock.rpc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Phase 23a — note confirm dispatch
 # ---------------------------------------------------------------------------
 

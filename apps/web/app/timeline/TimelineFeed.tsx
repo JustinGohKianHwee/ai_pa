@@ -15,6 +15,7 @@ import {
   PieChart,
   StickyNote,
   NotebookPen,
+  HeartPulse,
   Circle,
   type LucideIcon,
 } from "lucide-react";
@@ -165,6 +166,20 @@ const DOMAIN_META: Record<string, DomainMeta> = {
     title: (p) => str(p.content) ?? "Journal entry",
     summary: (p) => join([str(p.mood) ? `mood: ${str(p.mood)}` : null]),
     href: () => "/journal",
+  },
+  checkin: {
+    label: "Check-in",
+    icon: HeartPulse,
+    tone: "positive",
+    title: (p) => str(p.mood) ? `Feeling ${str(p.mood)}` : "Check-in",
+    summary: (p) =>
+      join([
+        num(p.energy) != null ? `energy ${num(p.energy)}/5` : null,
+        num(p.stress) != null ? `stress ${num(p.stress)}/5` : null,
+        num(p.sleep_hours) != null ? `${fmtNum(num(p.sleep_hours)!)}h sleep` : null,
+        str(p.activity),
+      ]),
+    href: () => "/checkins",
   },
 };
 

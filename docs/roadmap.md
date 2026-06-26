@@ -862,11 +862,18 @@ box) and `/journal` pages, NavRail entries, inbox tag/mood summaries, and full t
 inbox before confirm; immutable after. 551 backend tests pass; frontend lint/tsc/build clean.
 **Manual prerequisite:** apply `0020` (replace `<OWNER_USER_ID>`).
 
-#### Phase 23b — Lifestyle check-ins (next)
-Optional structured daily check-in (energy, mood, sleep, stress, activity) as a reflective log —
-explicitly **not** a medical/diagnostic tool. New `checkin` item_type (classifier + structured
-schema + item_type CHECK widening), domain table, confirm RPC, page. Structured rows so later
-correlation is possible; no diagnosis, no auto-advice.
+#### Phase 23b — Lifestyle check-ins ✓ implementation complete (manual verification pending)
+Structured daily wellbeing self-report, following the same domain template. Migration
+`0021_lifestyle_checkins.sql`: **widens `inbox_items.item_type` to add `checkin`**, table
+`lifestyle_checkins` (`energy`/`stress` smallint CHECK 1–5, `sleep_hours` numeric CHECK 0–24,
+`mood`/`activity`/`notes` text, `as_of` verbatim text), immutable, RLS-locked; `confirm_checkin_item`
+RPC writes one `memory_events` row (`domain='checkin'`). Classifier gains the `checkin` type +
+`CheckinStructuredJson` (1–5 ratings lenient-coerced to null if out of range; sleep 0–24; **at least
+one metric required**) + disambiguation vs food/exercise/journal/note. `review.py` `_confirm_checkin`
++ dispatch; `GET /checkins`; `/checkins` page (metrics + mood badge, "not medical advice" note),
+NavRail, inbox summary, timeline integration (`checkin` domain). **Explicitly not a
+medical/diagnostic tool** — no diagnosis, scoring, or auto-advice. 560 backend tests pass; frontend
+clean. **Manual prerequisite:** apply `0021` (replace `<OWNER_USER_ID>`).
 
 ### Phase 24 — Daily briefing & weekly reflection — *features 9 + 10; the summaries engine*
 Populate `daily_summaries` from confirmed records + snapshots + `memory_events`; generate an
@@ -876,12 +883,25 @@ Summaries are derived from structured data, not free-form AI guesses. Add a null
 `importance` to `memory_events` here as retrieval prep. **Scheduled** delivery (Telegram push at
 ~7am) waits for an always-on backend; on-demand works now.
 
+> **Why here (evidence):** summaries are the first "synthesis" step, and the research says synthesis
+> must be *grounded in structured records*, not generated freely (RAG grounding — Lewis et al. 2020).
+> It sits before the memory layers because it needs real domain data to summarize, and it cheaply
+> seeds the `importance` signal that Generative-Agents-style retrieval ranking (recency × importance
+> × relevance — Park et al. 2023) will consume in Phase 28. See
+> [`research/llm-memory-architecture.md`](research/llm-memory-architecture.md) §Implications.
+
 ### Phase 25 — Goal → activity attribution — *feature 4 (optional; may slip after 26)*
 Now that goals, finance intelligence, decisions, and real data exist: link records/metrics to
 goals and show **progress toward life goals** on the dashboard (e.g. housing-fund goal ←
 investments + savings + BTO milestones). Start with thin, explicit structured links; richer
 attribution can follow once vector memory lands. **Not a memory prerequisite** — may be reordered
 after Phase 26.
+
+> **Why here (evidence):** attribution is deliberately *structured-first* (explicit record→goal
+> links), which works with deterministic SQL and needs no memory index — so it can land before or
+> after the memory layers. Richer, fuzzy attribution ("which decisions moved this goal?") is exactly
+> the associative-recall job that waits for Phase 28's index, so we start thin here and avoid
+> over-building. It is the one forward phase with no hard dependency, hence "may be reordered."
 
 > **Memory resequencing (post-22b review).** The old single "Vector memory" phase is split per
 > `docs/research/llm-memory-architecture.md` + `docs/plans/memory-grounded-phase-plan.md`: build the
@@ -899,6 +919,14 @@ egress → no security-gate dependency); procedural memory stays in prompts/code
 `GET /memory_items` + a dashboard "Memory" view. **Out of scope:** embeddings, LLM distillation,
 autonomous writes, graph/KG. *(Plan: `docs/plans/memory-grounded-phase-plan.md` §Phase 26.)*
 
+> **Why here (evidence):** the research splits "memory" into a durable, exact layer and a lossy index
+> over it (report §Recommended Architecture). RAG/Self-RAG treat the index as a *pointer to* truth, so
+> the truth (`memory_items`) must exist independently and first. The taxonomy (event/episodic/semantic/
+> procedural/preference/goal) is CoALA/Tulving; validity + `superseded_by` are Zep's bi-temporal model
+> (Rasmussen et al. 2025); deterministic extract/consolidate is Mem0 (Chhikara et al. 2025) done in
+> SQL, not by an LLM. Because it never leaves the host, it carries **no egress risk** and needs no
+> security gate — which is exactly why it precedes Phase 27.
+
 ### Phase 27 — Security review & hardening (the egress gate; risk register)
 Before any personal data leaves the host for embeddings/LLM, do a formal review: every risk with
 **severity (High/Medium/Low)** + **likelihood** + mitigation + owner. Cover at least:
@@ -909,6 +937,13 @@ embedding-egress** (which provider, what data, retention). **Output:** a living 
 risk register; all High items fixed **and an explicit written approval of what may be embedded /
 which provider may receive it** before Phase 28.
 
+> **Why here (evidence):** this is the **egress gate**. Phases ≤26 keep all personal data on the host;
+> embedding (Phase 28) is the first time personal text is transmitted to a third-party model. The
+> research treats embedding as a data-egress decision, not a mere implementation detail (report
+> §Safety), so the formal review sits *between* building memory and indexing it. Prompt-injection is
+> called out because the assistant (Phase 29) is the most attackable surface, and it consumes what
+> this gate approves.
+
 ### Phase 28 — Memory retrieval index — pgvector embeddings over `memory_items` + summaries — *folds in feature 8*
 pgvector index (`memory_embeddings` / HNSW) over **`memory_items` + summaries** (never raw rows);
 hybrid retrieval (deterministic SQL first for facts/numbers, ANN recall ranked
@@ -918,12 +953,26 @@ filter superseded/expired); `POST /memory/search` + dashboard search. Memory **i
 real accumulated data, after 26 + 27. *(Design grounding:
 [`docs/research/llm-memory-architecture.md`](research/llm-memory-architecture.md).)*
 
+> **Why here (evidence):** the index is built last among the memory layers because (a) it depends on a
+> populated `memory_items` (26) and an approved egress decision (27), and (b) per Generative Agents /
+> Mem0, recall is only worth indexing once there is accumulated, ranked, consolidated memory to
+> retrieve over. Hybrid retrieval (SQL-first for facts, ANN for fuzzy) + resolve-to-source + cite is
+> the RAG/Self-RAG pattern; embeddings index `memory_items` + summaries, **never raw rows**, so the
+> index always points back at auditable truth.
+
 ### Phase 29 — LLM assistant / recommendations
 A retrieval-grounded assistant over your memory — ask questions across months of data, get
 recommendations grounded in **cited** records. **Finance numbers always come from deterministic
 queries**, never the LLM/vectors; any action is a **proposal** routed through inbox→review→confirm
 (the assistant never writes a domain record directly). The payoff, and the most security-sensitive
 surface (hence the Phase 27 gate). Advisory only.
+
+> **Why here (evidence):** the assistant is last because it sits *on top of* every layer below — it is
+> only as trustworthy as the grounded retrieval (28) and the gate (27) beneath it. The research is
+> emphatic that the LLM is a reasoning/phrasing layer, never the source of truth (RAG; report theses
+> 1–2, 5): finance numbers come from deterministic queries, claims cite sources (Self-RAG), and any
+> action is a *proposal* through inbox → review → confirm. This keeps the review-first invariant
+> intact even at the most "magical"-feeling layer.
 
 ### Deferred / optional (revisit after Phase 28)
 - **Relationship CRM** (feature 5) — contacts, last-contacted, follow-ups. A clean optional

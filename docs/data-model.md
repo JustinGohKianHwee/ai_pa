@@ -440,6 +440,23 @@ tag management, semantic/vector search (Phase 28).
 
 ---
 
+### `lifestyle_checkins` — Phase 23b (implemented, `supabase/migrations/0021_lifestyle_checkins.sql`)
+
+Confirmed daily wellbeing self-reports. One row per source `inbox_item` (UNIQUE `inbox_item_id`),
+**immutable** after confirmation, written only by `confirm_checkin_item` (appends one `memory_events`
+row, `domain='checkin'`, payload `{as_of, energy, mood, sleep_hours, stress, activity}`).
+**Explicitly NOT a medical/diagnostic tool** — a structured personal log for later correlation only;
+no diagnosis, scoring, or auto-advice.
+
+**Columns:** `id`, `inbox_item_id` (UNIQUE FK), `owner_id` (default-filled), `as_of` (**text**,
+verbatim day, not parsed), `energy` (smallint CHECK 1–5), `stress` (smallint CHECK 1–5),
+`sleep_hours` (numeric CHECK 0–24), `mood` / `activity` / `notes` (text), `created_at`. All metrics
+nullable. The classifier's `CheckinStructuredJson` coerces out-of-range ratings to null and
+**requires at least one of** energy/mood/sleep_hours/stress/activity. RLS deny-by-default,
+service-role only. Migration `0021` also **widens `inbox_items.item_type` to add `checkin`**.
+
+---
+
 ### Portfolio data — Phase 14 (external, read-only)
 
 Phase 14 does not add an `investment_notes` or portfolio-positions table. Current positions,

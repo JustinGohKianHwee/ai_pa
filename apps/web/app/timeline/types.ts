@@ -27,4 +27,5 @@ export const TIMELINE_DOMAINS: { value: string; label: string }[] = [
   { value: "portfolio_snapshot", label: "Portfolio" },
   { value: "note", label: "Notes" },
   { value: "journal", label: "Journal" },
+  { value: "checkin", label: "Check-ins" },
 ];

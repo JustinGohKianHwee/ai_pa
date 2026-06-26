@@ -27,7 +27,7 @@ CLASSIFICATION_MODEL = "gpt-4o-mini"
 
 ItemType = Literal[
     "task", "finance", "calendar", "food", "exercise", "habit", "goal", "decision",
-    "financial_snapshot", "investment", "note", "journal", "unknown",
+    "financial_snapshot", "investment", "note", "journal", "checkin", "unknown",
 ]
 
 SYSTEM_PROMPT = """\
@@ -47,6 +47,7 @@ Allowed types and the EXACT fields to extract for each (no extra fields):
   investment  – { "action_intent": "buy"|"sell"|"note", "ticker": str|null, "amount": float|null, "currency": "SGD" (default), "notes": str|null }
   note        – { "content": str, "tags": [str] }
   journal     – { "content": str, "mood": str|null }
+  checkin     – { "energy": int 1-5|null, "mood": str|null, "sleep_hours": float|null, "stress": int 1-5|null, "activity": str|null, "as_of": str|null, "notes": str|null }  (a daily self-report of wellbeing metrics; energy/stress are 1-5 self-ratings ONLY if stated; sleep_hours is hours slept; do not invent values or as_of)
   unknown     – {}
 
 Disambiguation rules (apply before choosing a type):
@@ -76,8 +77,16 @@ recurring monthly income, monthly investment contribution, or outstanding liabil
 car loan"). It is NOT a transaction: a single expense ("spent $12 on lunch") is "finance"; a \
 one-off payment received is "finance" income; buying/selling a security is "investment". Put \
 recurring salary in monthly_income, NOT a finance event.
-  - Do not invent a logged_at timestamp, a goal target_date, a decision decided_at/confidence, or \
-a financial_snapshot as_of. If not explicitly given, set them to null.
+  - A "checkin" is a daily wellbeing SELF-REPORT bundling how the user is doing — typically two or \
+more of: energy level, mood, hours of sleep, stress level, general activity ("energy 4/5, slept 7h, \
+a bit stressed, went for a walk"; "feeling tired today, only 5 hours sleep"). Distinguish from: \
+"food"/"exercise" (a specific logged meal or workout — a check-in is a broad daily status, not one \
+activity), "journal" (a free-form reflective narrative with no discrete metrics), and "note" (an \
+observation unrelated to today's wellbeing). When a message reports several wellbeing metrics for \
+the day, prefer "checkin". Only fill energy/stress (1-5) and sleep_hours when the user states them.
+  - Do not invent a logged_at timestamp, a goal target_date, a decision decided_at/confidence, a \
+financial_snapshot as_of, or a checkin as_of/energy/stress/sleep_hours. If not explicitly given, \
+set them to null.
 
 Respond ONLY with valid JSON in this exact shape — no extra commentary:
 {
@@ -316,6 +325,43 @@ class NoteStructuredJson(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class CheckinStructuredJson(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    energy: Optional[int] = None
+    mood: Optional[str] = None
+    sleep_hours: Optional[float] = None
+    stress: Optional[int] = None
+    activity: Optional[str] = None
+    as_of: Optional[str] = None
+    notes: Optional[str] = None
+
+    @field_validator("energy", "stress")
+    @classmethod
+    def rating_in_range(cls, v: Optional[int]) -> Optional[int]:
+        # 1-5 self-rating; out-of-range / unparseable → None (drop rather than fabricate a value).
+        if v is None:
+            return v
+        return v if 1 <= v <= 5 else None
+
+    @field_validator("sleep_hours")
+    @classmethod
+    def sleep_hours_sane(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return v
+        if not math.isfinite(v) or v < 0 or v > 24:
+            return None
+        return v
+
+    @model_validator(mode="after")
+    def at_least_one_metric(self) -> "CheckinStructuredJson":
+        if all(
+            getattr(self, f) is None
+            for f in ("energy", "mood", "sleep_hours", "stress", "activity")
+        ):
+            raise ValueError("a check-in needs at least one of energy/mood/sleep_hours/stress/activity")
+        return self
+
+
 class UnknownStructuredJson(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # No fields — structured_json must be {} for unknown items
@@ -334,6 +380,7 @@ _ITEM_TYPE_SCHEMAS: dict[str, type[BaseModel]] = {
     "investment": InvestmentStructuredJson,
     "journal":    JournalStructuredJson,
     "note":       NoteStructuredJson,
+    "checkin":    CheckinStructuredJson,
     "unknown":    UnknownStructuredJson,
 }
 

@@ -8,6 +8,7 @@ from supabase import Client
 
 from app.db.supabase_client import SupabaseConfigurationError, get_supabase_client
 from app.routes.calendar import CalendarIntentResponse
+from app.routes.checkins import CheckinResponse
 from app.routes.decisions import DecisionResponse
 from app.routes.exercise import ExerciseLogResponse
 from app.routes.financial_snapshots import FinancialSnapshotResponse, _row_to_response
@@ -126,6 +127,12 @@ class ConfirmJournalResponse(BaseModel):
     """Returned when a journal-type item is confirmed: the inbox item plus its entry."""
     inbox_item: ReviewedItemResponse
     journal_entry: JournalResponse
+
+
+class ConfirmCheckinResponse(BaseModel):
+    """Returned when a checkin-type item is confirmed: the inbox item plus its check-in."""
+    inbox_item: ReviewedItemResponse
+    checkin: CheckinResponse
 
 
 class EditInboxItemRequest(BaseModel):
@@ -1143,6 +1150,82 @@ def _confirm_journal(client: Client, inbox_id: str, item: dict) -> ConfirmJourna
     )
 
 
+def _fetch_checkin(client: Client, inbox_id: str) -> Optional[dict]:
+    res = client.table("lifestyle_checkins").select("*").eq("inbox_item_id", inbox_id).execute()
+    return res.data[0] if res.data else None
+
+
+def _recheck_checkin_confirm(
+    client: Client, inbox_id: str, original: dict
+) -> ConfirmCheckinResponse:
+    """Check-in counterpart of _recheck_decision_confirm (idempotent 200 / 409 / 503)."""
+    try:
+        item = _fetch_item(client, inbox_id)
+        checkin = _fetch_checkin(client, inbox_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database query failed") from exc
+
+    if item is not None and checkin is not None and item["review_status"] == "confirmed":
+        return ConfirmCheckinResponse(
+            inbox_item=ReviewedItemResponse(**item), checkin=CheckinResponse(**checkin)
+        )
+
+    if (
+        item is None
+        or item["review_status"] != original["review_status"]
+        or item["updated_at"] != original["updated_at"]
+    ):
+        raise HTTPException(
+            status_code=409, detail="Item was modified concurrently; confirm failed"
+        )
+
+    raise HTTPException(status_code=503, detail="Check-in confirmation database operation failed")
+
+
+def _confirm_checkin(client: Client, inbox_id: str, item: dict) -> ConfirmCheckinResponse:
+    """Phase 23b atomic confirmation for checkin-type items via confirm_checkin_item RPC."""
+    if item["review_status"] == "confirmed":
+        try:
+            existing = _fetch_checkin(client, inbox_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database query failed") from exc
+        if existing is not None:
+            return ConfirmCheckinResponse(
+                inbox_item=ReviewedItemResponse(**item), checkin=CheckinResponse(**existing)
+            )
+        raise HTTPException(
+            status_code=409,
+            detail="Item was confirmed before the check-ins module existed; backfill is not supported.",
+        )
+
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot confirm item with review_status='{item['review_status']}'",
+        )
+
+    err, _normalized = _validate_structured_json("checkin", item["structured_json"])
+    if err:
+        raise HTTPException(status_code=400, detail=f"structured_json invalid: {err}")
+
+    try:
+        result = client.rpc(
+            "confirm_checkin_item",
+            {"p_inbox_id": inbox_id, "p_expected_updated_at": item["updated_at"]},
+        ).execute()
+    except Exception:
+        return _recheck_checkin_confirm(client, inbox_id, item)
+
+    data = result.data
+    if not data:
+        return _recheck_checkin_confirm(client, inbox_id, item)
+
+    return ConfirmCheckinResponse(
+        inbox_item=ReviewedItemResponse(**data["inbox_item"]),
+        checkin=CheckinResponse(**data["checkin"]),
+    )
+
+
 @router.patch(
     "/{inbox_id}/confirm",
     dependencies=[Depends(require_user)],
@@ -1150,7 +1233,7 @@ def _confirm_journal(client: Client, inbox_id: str, item: dict) -> ConfirmJourna
 )
 def confirm_inbox_item(
     inbox_id: str,
-) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse | ConfirmExerciseResponse | ConfirmHabitResponse | ConfirmGoalResponse | ConfirmDecisionResponse | ConfirmFinancialSnapshotResponse | ConfirmNoteResponse | ConfirmJournalResponse:
+) -> ReviewedItemResponse | ConfirmTaskResponse | ConfirmFinanceResponse | ConfirmFoodResponse | ConfirmCalendarResponse | ConfirmExerciseResponse | ConfirmHabitResponse | ConfirmGoalResponse | ConfirmDecisionResponse | ConfirmFinancialSnapshotResponse | ConfirmNoteResponse | ConfirmJournalResponse | ConfirmCheckinResponse:
     try:
         client = get_supabase_client()
     except SupabaseConfigurationError as exc:
@@ -1208,6 +1291,10 @@ def confirm_inbox_item(
 
     if item["item_type"] == "journal":
         return _confirm_journal(client, inbox_id, item)
+
+    # Phase 23b: lifestyle check-in items confirm atomically and create a lifestyle_checkin.
+    if item["item_type"] == "checkin":
+        return _confirm_checkin(client, inbox_id, item)
 
     # Non-module items keep the Phase 7 status-only confirmation (no domain record).
     if item["review_status"] == "confirmed":

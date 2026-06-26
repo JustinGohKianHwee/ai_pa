@@ -19,6 +19,7 @@ const VALID_ITEM_TYPES = [
   "investment",
   "note",
   "journal",
+  "checkin",
   "unknown",
 ];
 
@@ -142,6 +143,18 @@ export function InboxCard({ item }: { item: InboxItem }) {
       : null;
   const journalSummary =
     item.item_type === "journal" && str(sj.mood) ? `mood: ${str(sj.mood)}` : null;
+  const checkinSummary =
+    item.item_type === "checkin"
+      ? [
+          typeof sj.energy === "number" ? `energy ${sj.energy}/5` : null,
+          typeof sj.stress === "number" ? `stress ${sj.stress}/5` : null,
+          typeof sj.sleep_hours === "number" ? `${sj.sleep_hours}h sleep` : null,
+          str(sj.mood),
+          str(sj.activity),
+        ]
+          .filter(Boolean)
+          .join(" · ") || null
+      : null;
   const nonEmptyArr = (v: unknown) => Array.isArray(v) && v.length > 0;
   const financialSnapshotSummary =
     item.item_type === "financial_snapshot"
@@ -306,6 +319,7 @@ export function InboxCard({ item }: { item: InboxItem }) {
       {decisionSummary ? <p className="text-sm text-muted">{decisionSummary}</p> : null}
       {noteSummary ? <p className="text-sm text-muted">{noteSummary}</p> : null}
       {journalSummary ? <p className="text-sm text-muted">{journalSummary}</p> : null}
+      {checkinSummary ? <p className="numeric text-sm text-muted">{checkinSummary}</p> : null}
       {financialSnapshotSummary ? (
         <p className="text-sm text-muted">{financialSnapshotSummary}</p>
       ) : null}

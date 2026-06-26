@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from app.services.classifier import (
     CLASSIFICATION_MODEL,
+    CheckinStructuredJson,
     ClassificationError,
     ClassificationResult,
     ClassificationValidationError,
@@ -268,3 +269,31 @@ async def test_classify_text_raises_classification_error_on_api_failure(monkeypa
     with patch("app.services.classifier.AsyncOpenAI", return_value=mock_client):
         with pytest.raises(ClassificationError):
             await classify_text("some text")
+
+
+# ---------------------------------------------------------------------------
+# Phase 23b — CheckinStructuredJson validation
+# ---------------------------------------------------------------------------
+
+
+def test_checkin_valid_fields():
+    c = CheckinStructuredJson.model_validate(
+        {"energy": 4, "mood": "good", "sleep_hours": 7.5, "stress": 2, "activity": "walk"}
+    )
+    assert c.energy == 4 and c.stress == 2 and c.sleep_hours == 7.5
+
+
+def test_checkin_out_of_range_rating_dropped_to_none():
+    # 1-5 ratings are lenient: out-of-range becomes None rather than failing the capture.
+    c = CheckinStructuredJson.model_validate({"energy": 9, "mood": "ok"})
+    assert c.energy is None
+
+
+def test_checkin_insane_sleep_hours_dropped():
+    c = CheckinStructuredJson.model_validate({"sleep_hours": 99, "mood": "ok"})
+    assert c.sleep_hours is None
+
+
+def test_checkin_requires_at_least_one_metric():
+    with pytest.raises(ValidationError):
+        CheckinStructuredJson.model_validate({"as_of": "today", "notes": "nothing"})
