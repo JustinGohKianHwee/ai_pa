@@ -157,6 +157,7 @@ Always create new commits. Only amend if explicitly asked.
 - `exercise_logs` — confirmed exercise/workout entries (Phase 18+)
 - `habits` — confirmed habit definitions, definition-only (Phase 20+)
 - `goals` — confirmed goals; status active/achieved/abandoned mutable post-confirm (Phase 20+)
+- `goal_links` — explicit user-created goal attribution metadata; reversible, not captured/confirmed, no memory_events (Phase 25+)
 - `decisions` — confirmed decision-journal entries; status active/reversed/archived mutable post-confirm (Phase 21+)
 - `manual_financial_snapshots` — reviewed manual financial inputs (cash/income/investment/liabilities by currency), immutable (Phase 22a+)
 - `notes` — confirmed free-form notes (content + tags), immutable (Phase 23a+)

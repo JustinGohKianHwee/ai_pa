@@ -342,6 +342,25 @@ active/achieved/abandoned, default `active`), `created_at`, `updated_at` (via th
 
 ---
 
+### `goal_links` — Phase 25 (implemented, `supabase/migrations/0023_goal_links.sql`)
+
+Explicit, user-created attribution metadata between a goal and a confirmed record. A goal link is
+**not** a domain record, does not enter the capture→confirm pipeline, and does **not** write a
+`memory_events` row. It is reversible metadata, matching the posture of goal status toggles.
+
+**Columns:** `id`, `owner_id` (default-filled single owner), `goal_id` (FK to `goals`),
+`source_table` (CHECK allow-list: `tasks`, `money_events`, `food_logs`, `calendar_intents`,
+`exercise_logs`, `habits`, `decisions`, `notes`, `journal_entries`, `lifestyle_checkins`,
+`manual_financial_snapshots`), `source_id`, `note`, `created_at`, and
+`UNIQUE (goal_id, source_table, source_id)` for idempotency.
+
+`GET /goals/{id}/links` resolves a display `label` and short `title` from the allow-listed source
+table. `POST /goals/{id}/links` validates the goal, source type, and source record before creating
+or idempotently returning the link. `DELETE /goals/{id}/links/{link_id}` removes the annotation.
+Links are only created by explicit user action; there is no auto/fuzzy attribution in Phase 25.
+
+---
+
 ### `decisions` — Phase 21 (implemented, `supabase/migrations/0016_decisions.sql`)
 
 Confirmed decision-journal entries. One row per source `inbox_item` (UNIQUE `inbox_item_id`),

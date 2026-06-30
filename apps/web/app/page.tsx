@@ -11,7 +11,7 @@ import type { ExerciseLogsResponse } from "./exercise/types";
 import type { HabitsResponse } from "./habits/types";
 import type { GoalsResponse } from "./goals/types";
 import type { DecisionsResponse } from "./decisions/types";
-import type { FinancialSummary } from "./financial-intelligence/types";
+import type { FinancialGoalsResponse, FinancialSummary } from "./financial-intelligence/types";
 import type { CalendarIntentsResponse } from "./calendar/types";
 import type { InboxResponse } from "./inbox/types";
 import type { DailyReview } from "./review/types";
@@ -38,7 +38,22 @@ async function getJson<T>(path: string): Promise<T | null> {
 }
 
 export default async function DashboardPage() {
-  const [snapshots, tasks, finance, food, exercise, habits, goals, decisions, finIntel, calendar, inbox, review, briefing] =
+  const [
+    snapshots,
+    tasks,
+    finance,
+    food,
+    exercise,
+    habits,
+    goals,
+    decisions,
+    finIntel,
+    financialGoals,
+    calendar,
+    inbox,
+    review,
+    briefing,
+  ] =
     await Promise.all([
       getJson<SnapshotListResponse>("/portfolio/snapshots"),
       getJson<TasksResponse>("/tasks"),
@@ -49,6 +64,7 @@ export default async function DashboardPage() {
       getJson<GoalsResponse>("/goals"),
       getJson<DecisionsResponse>("/decisions"),
       getJson<FinancialSummary>("/financial_intelligence/summary"),
+      getJson<FinancialGoalsResponse>("/financial_intelligence/financial-goals"),
       getJson<CalendarIntentsResponse>("/calendar_intents"),
       getJson<InboxResponse>("/inbox"),
       getJson<DailyReview>("/daily_review"),
@@ -57,6 +73,7 @@ export default async function DashboardPage() {
 
   const focusTop = briefing?.briefing?.focus?.slice(0, 3) ?? [];
   const warningCount = briefing?.briefing?.warnings?.length ?? 0;
+  const goalProgress = financialGoals?.items.filter((goal) => goal.status === "active").slice(0, 3) ?? [];
 
   // Portfolio tile — latest snapshot + value sparkline (fast, DB-only).
   const latest = snapshots?.items?.[0] ?? null;
@@ -127,6 +144,52 @@ export default async function DashboardPage() {
               </span>
             ) : null}
             <ArrowUpRight size={16} className="text-faint group-hover:text-fg" aria-hidden />
+          </div>
+        </Link>
+      ) : null}
+
+      {goalProgress.length > 0 ? (
+        <Link
+          href="/goals"
+          className="group mb-5 block rounded-xl border border-border bg-surface p-4 transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-xs font-medium uppercase tracking-wider text-faint">
+              Goal progress
+            </span>
+            <ArrowUpRight size={16} className="text-faint group-hover:text-fg" aria-hidden />
+          </div>
+          <div className="space-y-3">
+            {goalProgress.map((goal) => {
+              const pct =
+                goal.progress_pct === null ? null : Math.max(0, Math.min(1, goal.progress_pct));
+              return (
+                <div key={goal.id} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <div className="min-w-0">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="truncate text-fg">{goal.title}</span>
+                      <span className="numeric shrink-0 text-muted">
+                        {pct === null ? "unavailable" : `${Math.round(pct * 100)}%`}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-raised">
+                      <div
+                        className="h-full rounded-full bg-accent"
+                        style={{ width: `${pct === null ? 0 : Math.round(pct * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="numeric text-sm text-muted">
+                    {goal.base_value === null
+                      ? "—"
+                      : `${fmtMoney(goal.base_value, goal.target_currency)} / ${fmtMoney(
+                          goal.target_value,
+                          goal.target_currency
+                        )}`}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </Link>
       ) : null}

@@ -14,8 +14,9 @@ Phase 13 (✓ complete): daily review — `GET /daily_review`. Phase 12 (✓ com
 intents. Phase 11 (✓ complete): food logs. Phase 10 (✓ complete): voice transcription.
 Migrations `0001`–`0017` exist; `0009`–`0017` require manual application as applicable.
 Replace `<OWNER_USER_ID>` in `0010_owner_id.sql`, `0011_memory_events.sql`,
-`0013_exercise_logs.sql`, `0015_habits_goals.sql`, `0016_decisions.sql`, and
-`0017_financial_snapshots.sql` with the Supabase owner UUID before applying them. Phase 17 also
+`0013_exercise_logs.sql`, `0015_habits_goals.sql`, `0016_decisions.sql`,
+`0017_financial_snapshots.sql`, and `0023_goal_links.sql` with the Supabase owner UUID before
+applying them. Phase 17 also
 requires a **private Supabase Storage bucket named `food-photos`** (food photos; signed-URL reads
 only). 487 tests pass.
 
@@ -140,6 +141,12 @@ It must never appear in `apps/web/` env vars, browser bundles, or client respons
 | `GET` | `/money_events` | `Supabase access token` | Read-only list of confirmed expenses, newest first, with `totals_by_currency` (grouped by currency then category; currencies never summed together). |
 | `GET` | `/food_logs` | `Supabase access token` | Read-only list of confirmed food logs, newest first. `?date=today` filters by the user's local calendar day (based on `USER_TIMEZONE`), using `created_at` UTC boundaries — not `logged_at`. Only `date=today` or no param accepted; other values return 422. |
 | `GET` | `/calendar_intents` | `Supabase access token` | Read-only list of all confirmed calendar intents, ordered by `created_at DESC`. `proposed_datetime` is verbatim text — not parsed. No date filter. |
+| `GET` | `/goals` | `Supabase access token` | Read-only list of confirmed goals, newest first. |
+| `GET` | `/goals/{id}` | `Supabase access token` | Returns one confirmed goal for the owner. |
+| `PATCH` | `/goals/{id}/status` | `Supabase access token` | Toggles goal status (`active`/`achieved`/`abandoned`). Status changes are metadata and do not write `memory_events`. |
+| `GET` | `/goals/{id}/links` | `Supabase access token` | Lists explicit user-created attribution links for a goal, with resolved label/title. |
+| `POST` | `/goals/{id}/links` | `Supabase access token` | Creates a manual goal attribution link to an allow-listed confirmed record. Duplicate links are idempotent. No inbox item or `memory_events` row. |
+| `DELETE` | `/goals/{id}/links/{link_id}` | `Supabase access token` | Removes a goal attribution link. |
 | `GET` | `/daily_review` | `Supabase access token` | Read-only daily activity summary. Only `?date=today` or no param accepted; other values return 422. Requires `USER_TIMEZONE` — missing or invalid → 503. Returns captured/confirmed/rejected/pending counts, item lists, and a deterministic summary string. No AI call. |
 | `GET` | `/portfolio` | `Supabase access token` | Read-only Tiger + IBKR portfolio. Brokers fetched independently/concurrently with bounded per-broker timeouts; one failing broker never hides the other (`partial_failure`, per-broker `status`). Returns normalized positions, account summaries, cash, and `totals_by_currency` (grouped per currency, never summed across currencies, with per-metric completeness). Account refs masked. No Supabase access, no broker writes. Returns 200 even when brokers are unconfigured/unavailable (the failure is reported in the body). |
 | `POST` | `/portfolio/snapshots` | `Supabase access token` | Manually creates or refreshes today's atomic normalized snapshot. Idempotent per owner/local date. |
@@ -392,6 +399,13 @@ Expected response:
   `financial_intelligence._expenses_by_currency`/`_month_starts`, computes deterministically, and
   idempotently upserts `daily_summaries`. No LLM (egress gated at Phase 27); free-text dates not
   parsed (task focus uses `urgency`). Manual setup: apply `0022` (replace `<OWNER_USER_ID>`).
+- Phase 25: Goal → activity attribution, migration `0023_goal_links.sql` (`goal_links` metadata
+  table with owner_id, goal_id, allow-listed `source_table`, `source_id`, optional note, unique
+  link idempotency, RLS deny-by-default). `app/routes/goals.py` adds `GET /goals/{id}`,
+  `GET /goals/{id}/links`, `POST /goals/{id}/links`, and `DELETE /goals/{id}/links/{link_id}`.
+  Links are explicit user-created metadata only: no inbox/capture pipeline, no classifier type,
+  no timeline domain, and no `memory_events` writes. Manual setup: apply `0023` (replace
+  `<OWNER_USER_ID>`).
 - Phase 23b: Lifestyle check-ins, migration `0021_lifestyle_checkins.sql` (**widens
   `inbox_items.item_type` for `checkin`**; `lifestyle_checkins` table — `energy`/`stress` 1–5,
   `sleep_hours` 0–24, `mood`/`activity`/`notes`/`as_of` text; immutable; RLS; `confirm_checkin_item`

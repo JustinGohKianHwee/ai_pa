@@ -38,10 +38,12 @@ def _auth() -> dict:
 
 
 def _list_mock(data: list) -> MagicMock:
+    q = MagicMock()
+    for method in ("select", "eq", "order"):
+        getattr(q, method).return_value = q
+    q.execute.return_value = MagicMock(data=data)
     mock = MagicMock()
-    mock.table.return_value.select.return_value.order.return_value.execute.return_value = (
-        MagicMock(data=data)
-    )
+    mock.table.return_value = q
     return mock
 
 
@@ -88,9 +90,10 @@ def test_shape_and_total():
 
 def test_query_failure_returns_503():
     mock = MagicMock()
-    mock.table.return_value.select.return_value.order.return_value.execute.side_effect = (
-        Exception("boom")
-    )
+    q = mock.table.return_value
+    for method in ("select", "eq", "order"):
+        getattr(q, method).return_value = q
+    q.execute.side_effect = Exception("boom")
     with patch("app.routes.goals.get_supabase_client", return_value=mock):
         assert client.get("/goals", headers=_auth()).status_code == 503
 

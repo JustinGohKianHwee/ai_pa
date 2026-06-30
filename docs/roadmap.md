@@ -898,12 +898,18 @@ prerequisite:** apply `0022` (replace `<OWNER_USER_ID>`).
 > × relevance — Park et al. 2023) will consume in Phase 28. See
 > [`research/llm-memory-architecture.md`](research/llm-memory-architecture.md) §Implications.
 
-### Phase 25 — Goal → activity attribution — *feature 4 (optional; may slip after 26)*
-Now that goals, finance intelligence, decisions, and real data exist: link records/metrics to
-goals and show **progress toward life goals** on the dashboard (e.g. housing-fund goal ←
-investments + savings + BTO milestones). Start with thin, explicit structured links; richer
-attribution can follow once vector memory lands. **Not a memory prerequisite** — may be reordered
-after Phase 26.
+### Phase 25 — Goal → activity attribution — implementation complete (manual verification pending)
+Adds explicit, user-created attribution links between goals and confirmed records via
+`supabase/migrations/0023_goal_links.sql` (`goal_links`: `goal_id`, allow-listed
+`source_table`, `source_id`, optional `note`, unique per linked record, RLS deny-by-default).
+Backend endpoints: `GET /goals/{id}`, `GET /goals/{id}/links`, `POST /goals/{id}/links`, and
+`DELETE /goals/{id}/links/{link_id}`. The UI adds `/goals/[id]`, a `LinkManager`, linked goal
+cards, and a compact dashboard financial-goal progress strip.
+
+Goal links are **metadata**, not domain records: they are manual, reversible annotations; they do
+not enter the capture→confirm pipeline, do not widen `inbox_items.item_type`, do not create a
+timeline domain, and do not write `memory_events`. No auto/fuzzy attribution, milestones, or link
+editing in this phase.
 
 > **Why here (evidence):** attribution is deliberately *structured-first* (explicit record→goal
 > links), which works with deterministic SQL and needs no memory index — so it can land before or

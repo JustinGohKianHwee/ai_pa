@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Badge } from "@/components/ui";
 import { fmtDateTime, type Tone } from "@/lib/format";
@@ -36,7 +37,12 @@ export function GoalCard({ goal }: { goal: Goal }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-4">
       <div className="flex items-start justify-between gap-3">
-        <p className="font-medium leading-snug text-fg">{goal.title}</p>
+        <Link
+          href={`/goals/${goal.id}`}
+          className="min-w-0 rounded-md font-medium leading-snug text-fg transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {goal.title}
+        </Link>
         <Badge tone={STATUS_TONE[goal.status] ?? "neutral"} dot={false}>
           {goal.status}
         </Badge>
