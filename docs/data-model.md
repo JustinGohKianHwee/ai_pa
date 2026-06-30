@@ -457,6 +457,23 @@ service-role only. Migration `0021` also **widens `inbox_items.item_type` to add
 
 ---
 
+### `daily_summaries` + `memory_events.importance` — Phase 24 (implemented, `supabase/migrations/0022_daily_summaries.sql`)
+
+Persisted **deterministic synthesis artifacts** (not domain records, not in the capture→confirm
+pipeline). One row per `(owner_id, summary_date, kind)` where `kind in ('daily','weekly')`, holding
+the computed briefing/reflection in `payload_json`; the `/briefing` and `/reflection` endpoints
+compute live and **idempotently upsert** the row (regenerating overwrites). Built only from confirmed
+records + snapshots + `memory_events` via pure assemblers (`app/services/briefing.py`); **no LLM** —
+egress is gated at Phase 27, LLM phrasing is Phase 29. Free-text `tasks.due_date` /
+`calendar_intents.proposed_datetime` are **not parsed**: task focus uses the structured
+`tasks.urgency`. Currencies are never summed across currencies. RLS deny-by-default, service-role only.
+
+Migration `0022` also adds a nullable **`memory_events.importance`** (`smallint`, CHECK 1–10) as
+retrieval-ranking prep for Phase 28 (Generative-Agents recency × importance × relevance) — **column
+only, no backfill, no confirm-RPC changes**; population is deferred to Phase 26/28.
+
+---
+
 ### Portfolio data — Phase 14 (external, read-only)
 
 Phase 14 does not add an `investment_notes` or portfolio-positions table. Current positions,

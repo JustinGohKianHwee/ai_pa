@@ -875,13 +875,21 @@ NavRail, inbox summary, timeline integration (`checkin` domain). **Explicitly no
 medical/diagnostic tool** — no diagnosis, scoring, or auto-advice. 560 backend tests pass; frontend
 clean. **Manual prerequisite:** apply `0021` (replace `<OWNER_USER_ID>`).
 
-### Phase 24 — Daily briefing & weekly reflection — *features 9 + 10; the summaries engine*
-Populate `daily_summaries` from confirmed records + snapshots + `memory_events`; generate an
-on-demand **daily briefing** (tasks due, calendar, spend, portfolio delta, pending inbox,
-suggested focus, warnings) and a **weekly reflection** (wins, concerns, trends, progress).
-Summaries are derived from structured data, not free-form AI guesses. Add a nullable
-`importance` to `memory_events` here as retrieval prep. **Scheduled** delivery (Telegram push at
-~7am) waits for an always-on backend; on-demand works now.
+### Phase 24 — Daily briefing & weekly reflection ✓ implementation complete (manual verification pending) — *features 9 + 10; the summaries engine*
+On-demand **daily briefing** (focus by urgency, calendar, today + month-to-date spend, portfolio
+delta, pending inbox, warnings) and **weekly reflection** (wins, concerns, week-over-week trends,
+active-goal progress). Migration `0022_daily_summaries.sql`: adds a nullable `memory_events.importance`
+(1–10, retrieval-ranking prep — column only, no backfill) and a `daily_summaries` table (one row per
+owner/date/`kind` in `daily|weekly`, RLS-locked). Pure assemblers `build_daily_briefing` /
+`build_weekly_reflection` in `app/services/briefing.py` (no DB, no I/O — unit-tested), fed by
+`app/routes/briefing.py` (`GET /briefing`, `GET /reflection`) which reuses
+`financial_intelligence._expenses_by_currency`/`_month_starts` and idempotently upserts the result
+into `daily_summaries`. **Deterministic-only — no LLM** (egress is gated at Phase 27; LLM phrasing is
+Phase 29). Free-text `due_date`/`proposed_datetime` are **not parsed** — task focus uses the
+structured `urgency`; calendar is shown as a list. Frontend `/briefing` + `/reflection` pages, NavRail
+entries, and a "Today's focus" strip on the dashboard. **Scheduled** Telegram push (~7am) still waits
+for an always-on backend; on-demand works now. 572 backend tests pass; frontend clean. **Manual
+prerequisite:** apply `0022` (replace `<OWNER_USER_ID>`).
 
 > **Why here (evidence):** summaries are the first "synthesis" step, and the research says synthesis
 > must be *grounded in structured records*, not generated freely (RAG grounding — Lewis et al. 2020).

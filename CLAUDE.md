@@ -162,6 +162,7 @@ Always create new commits. Only amend if explicitly asked.
 - `notes` — confirmed free-form notes (content + tags), immutable (Phase 23a+)
 - `journal_entries` — confirmed reflective journal entries (content + mood), immutable (Phase 23a+)
 - `lifestyle_checkins` — confirmed daily wellbeing self-reports (energy/mood/sleep/stress/activity), immutable; not medical (Phase 23b+)
+- `daily_summaries` — persisted deterministic briefing/reflection artifacts (daily|weekly), derived not captured; idempotent upsert (Phase 24+)
 - no portfolio tables — Phase 14 portfolio is read-only, broker data only, no Supabase writes
 
 See `docs/data-model.md` for full entity descriptions.

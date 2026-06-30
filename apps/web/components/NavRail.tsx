@@ -21,6 +21,8 @@ import {
   StickyNote,
   NotebookPen,
   HeartPulse,
+  Sparkles,
+  LineChart,
   LogOut,
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
@@ -28,6 +30,8 @@ import { logout } from "@/app/logout/actions";
 
 const items = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/briefing", label: "Briefing", icon: Sparkles },
+  { href: "/reflection", label: "Weekly reflection", icon: LineChart },
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/tasks", label: "Tasks", icon: CheckSquare },
   { href: "/finance", label: "Finance", icon: Wallet },

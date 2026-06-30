@@ -385,6 +385,13 @@ Expected response:
   `app/routes/journal.py` (`GET /journal`); `_confirm_note` / `_confirm_journal` + dispatch in
   `review.py`; timeline `ALLOWED_DOMAINS` += `note`/`journal`. Edited in the inbox before confirm;
   immutable after. Manual setup: apply `0020` (replace `<OWNER_USER_ID>`).
+- Phase 24: Daily briefing & weekly reflection, migration `0022_daily_summaries.sql` (nullable
+  `memory_events.importance` 1-10 prep + `daily_summaries` table, RLS). Pure assemblers in
+  `app/services/briefing.py` (`build_daily_briefing` / `build_weekly_reflection` — no DB/LLM);
+  `app/routes/briefing.py` (`GET /briefing`, `GET /reflection`) reuses
+  `financial_intelligence._expenses_by_currency`/`_month_starts`, computes deterministically, and
+  idempotently upserts `daily_summaries`. No LLM (egress gated at Phase 27); free-text dates not
+  parsed (task focus uses `urgency`). Manual setup: apply `0022` (replace `<OWNER_USER_ID>`).
 - Phase 23b: Lifestyle check-ins, migration `0021_lifestyle_checkins.sql` (**widens
   `inbox_items.item_type` for `checkin`**; `lifestyle_checkins` table — `energy`/`stress` 1–5,
   `sleep_hours` 0–24, `mood`/`activity`/`notes`/`as_of` text; immutable; RLS; `confirm_checkin_item`

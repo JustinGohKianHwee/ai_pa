@@ -16,6 +16,7 @@ import type { CalendarIntentsResponse } from "./calendar/types";
 import type { InboxResponse } from "./inbox/types";
 import type { DailyReview } from "./review/types";
 import type { SnapshotListResponse } from "./portfolio/snapshot-types";
+import type { BriefingResponse } from "./briefing/types";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,7 @@ async function getJson<T>(path: string): Promise<T | null> {
 }
 
 export default async function DashboardPage() {
-  const [snapshots, tasks, finance, food, exercise, habits, goals, decisions, finIntel, calendar, inbox, review] =
+  const [snapshots, tasks, finance, food, exercise, habits, goals, decisions, finIntel, calendar, inbox, review, briefing] =
     await Promise.all([
       getJson<SnapshotListResponse>("/portfolio/snapshots"),
       getJson<TasksResponse>("/tasks"),
@@ -51,7 +52,11 @@ export default async function DashboardPage() {
       getJson<CalendarIntentsResponse>("/calendar_intents"),
       getJson<InboxResponse>("/inbox"),
       getJson<DailyReview>("/daily_review"),
+      getJson<BriefingResponse>("/briefing"),
     ]);
+
+  const focusTop = briefing?.briefing?.focus?.slice(0, 3) ?? [];
+  const warningCount = briefing?.briefing?.warnings?.length ?? 0;
 
   // Portfolio tile — latest snapshot + value sparkline (fast, DB-only).
   const latest = snapshots?.items?.[0] ?? null;
@@ -97,6 +102,34 @@ export default async function DashboardPage() {
   return (
     <PageContainer className="max-w-6xl">
       <PageHeader title="Dashboard" subtitle={today} />
+
+      {briefing ? (
+        <Link
+          href="/briefing"
+          className="group mb-5 flex items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <div className="min-w-0">
+            <span className="text-xs font-medium uppercase tracking-wider text-faint">
+              Today&apos;s focus
+            </span>
+            {focusTop.length > 0 ? (
+              <p className="mt-1 truncate text-sm text-fg">
+                {focusTop.map((t) => t.title).filter(Boolean).join(" · ")}
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-muted">No open tasks.</p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            {warningCount > 0 ? (
+              <span className="rounded-full border border-warning/40 px-2 py-0.5 text-xs font-medium text-warning">
+                {warningCount} alert{warningCount !== 1 ? "s" : ""}
+              </span>
+            ) : null}
+            <ArrowUpRight size={16} className="text-faint group-hover:text-fg" aria-hidden />
+          </div>
+        </Link>
+      ) : null}
 
       <BentoGrid>
         {/* Portfolio — signature tile */}

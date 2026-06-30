@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 load_dotenv(".env.local")
 
 from fastapi import FastAPI  # noqa: E402 (import after dotenv so env is ready)
+from app.routes.briefing import router as briefing_router  # noqa: E402
 from app.routes.calendar import router as calendar_router  # noqa: E402
 from app.routes.checkins import router as checkins_router  # noqa: E402
 from app.routes.classify import router as classify_router  # noqa: E402
@@ -53,6 +54,7 @@ app.include_router(financial_snapshots_router)
 app.include_router(financial_intelligence_router)
 app.include_router(calendar_router)
 app.include_router(daily_review_router)
+app.include_router(briefing_router)
 app.include_router(timeline_router)
 app.include_router(portfolio_router)
 app.include_router(portfolio_snapshots_router)
